@@ -57,9 +57,9 @@ export default function RADashboard() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans">
+    <div style={{ display: 'flex', height: '100vh', width: '100%', backgroundColor: '#f1f5f9', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10">
+      <aside style={{ width: '256px', backgroundColor: '#000f1a', color: 'white', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', zIndex: 10 }}>
         <div className="p-6 border-b border-slate-800">
           <h1 className="text-2xl font-bold tracking-wider text-blue-400">ELECTION '26</h1>
           <p className="text-slate-400 text-sm mt-1">Analyst Tracker</p>
@@ -81,8 +81,8 @@ export default function RADashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="bg-white shadow-sm border-b border-slate-200 px-8 py-4 flex justify-between items-center">
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', width: '100%' }}>
+        <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #cbd5e1', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-semibold text-slate-800">Live Round Tracking</h2>
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
@@ -96,15 +96,15 @@ export default function RADashboard() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-8">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full">
+        <div style={{ flex: 1, overflow: 'auto', padding: '2rem', width: '100%' }}>
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '0.75rem', boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
             <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
               <h3 className="text-lg font-medium text-slate-900">
                 Monitored Territories ({assignments?.length || 0})
               </h3>
             </div>
             
-            <div className="overflow-x-auto flex-1">
+            <div style={{ overflow: 'auto', flex: 1 }}>
               {isLoading ? (
                 <div className="p-12 text-center text-blue-600 font-medium">Connecting to live feed...</div>
               ) : assignments?.length === 0 ? (

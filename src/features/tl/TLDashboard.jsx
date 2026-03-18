@@ -98,7 +98,7 @@ export default function TLDashboard() {
   };
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f5f7fa' }}>
+    <Box sx={{ display: 'flex', height: '100vh', width: '100%', bgcolor: '#f5f7fa', overflow: 'hidden' }}>
       {/* Sidebar Navigation */}
       <Drawer
         variant="permanent"
@@ -180,7 +180,7 @@ export default function TLDashboard() {
       </Drawer>
 
       {/* Main Content */}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
         {/* Top Header */}
         <AppBar
           position="static"
@@ -202,7 +202,7 @@ export default function TLDashboard() {
         </AppBar>
 
         {/* Content Area */}
-        <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3 }}>
+        <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3, width: '100%', minWidth: 0 }}>
           {activeTab === 0 && (
             <Card elevation={0} sx={{ border: '1px solid #e2e8f0', height: '100%', display: 'flex', flexDirection: 'column' }}>
               <CardHeader

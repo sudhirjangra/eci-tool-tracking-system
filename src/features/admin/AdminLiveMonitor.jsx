@@ -186,9 +186,9 @@ export default function AdminLiveMonitor() {
   };
 
   return (
-    <Box sx={{ display: 'flex', gap: 2, height: '100%', width: '100%' }}>
+    <Box sx={{ display: 'flex', height: '100%', width: '100%' }}>
       {/* LEFT SIDEBAR - Stats & Filters (Compact) */}
-      <Box sx={{ width: 280, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'auto', pb: 2 }}>
+      <Box sx={{ width: 280, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'auto', p: 3, borderRight: '1px solid #e2e8f0' }}>
         {/* Key Metrics - Compact Cards */}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, px: 1.5, color: '#64748b' }}>
@@ -336,16 +336,15 @@ export default function AdminLiveMonitor() {
 
       {/* RIGHT SIDE - Main Table (Full Width) */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 }}>
-
-      {/* Table Section */}
-      <Card elevation={0} sx={{ border: '1px solid #e2e8f0', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {/* Table Section */}
+        <Card elevation={0} sx={{ borderRadius: 0, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <CardHeader
           title={
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
               Live Election Data
             </Typography>
           }
-          sx={{ pb: 1.5 }}
+          sx={{ pb: 1.5, pt: 3, px: 3 }}
         />
         <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
           {loadingData ? (
@@ -462,5 +461,7 @@ export default function AdminLiveMonitor() {
         />
       </Card>
     </Box>
+    
+  </Box>  
   );
 }
