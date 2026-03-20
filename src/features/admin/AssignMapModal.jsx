@@ -1,11 +1,38 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { X, Save, AlertCircle, MapPin, CheckSquare, Square } from 'lucide-react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Box,
+  Typography,
+  TextField,
+  List,
+  ListItemButton,
+  ListItemText,
+  Chip,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Checkbox,
+  CircularProgress,
+  Alert,
+  Stack,
+  InputAdornment,
+} from '@mui/material';
+import { MapPin, Search } from 'lucide-react';
 
 export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
+  const [selectedState, setSelectedState] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [activeState, setActiveState] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -15,24 +42,18 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
       if (!tl?.id) return [];
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_name, states(name), assigned_tl_id`)
-        .or(`assigned_tl_id.is.null,assigned_tl_id.eq.${tl.id}`)
-        .order('id', { ascending: true });
+        .select(`id, eci_id, eci_name, tool_name, states(name), assigned_tl_id`)
+        .order('states(name),eci_name', { ascending: true });
       if (error) throw error;
       return data;
     },
     enabled: !!tl?.id && isOpen, 
   });
 
-  // Extract unique states and set the first one as active on load
-  const uniqueStates = useMemo(() => {
-    if (!constituencies) return [];
-    const states = [...new Set(constituencies.map(c => c.states?.name).filter(Boolean))].sort();
-    if (states.length > 0 && !activeState) setActiveState(states[0]);
-    return states;
-  }, [constituencies]);
+  const states = [...new Set((constituencies || []).map(c => c.states?.name).filter(Boolean))].sort();
 
-  // Pre-check owned boxes
+  const isDisabledConstituency = (c) => c.assigned_tl_id && c.assigned_tl_id !== tl.id;
+
   useEffect(() => {
     if (constituencies) {
       const alreadyAssigned = constituencies.filter(c => c.assigned_tl_id === tl.id).map(c => c.id);
@@ -40,32 +61,47 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
     }
   }, [constituencies, tl?.id]);
 
-  if (!isOpen || !tl) return null;
-
-  // Filter constituencies by the currently active State tab
-  const activeConstituencies = constituencies?.filter(c => c.states?.name === activeState) || [];
+  if (!tl) return null;
 
   const handleToggle = (id) => {
-    const next = new Set(selectedIds);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelectedIds(next);
+    const constituency = constituencies?.find((c) => c.id === id);
+    if (!constituency || isDisabledConstituency(constituency)) return;
+
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  const handleToggleAllInState = () => {
-    const stateIds = activeConstituencies.map(c => c.id);
-    const allSelected = stateIds.every(id => selectedIds.has(id));
-    const next = new Set(selectedIds);
-    
-    if (allSelected) {
-      stateIds.forEach(id => next.delete(id)); // Deselect all in this state
-    } else {
-      stateIds.forEach(id => next.add(id)); // Select all in this state
-    }
-    setSelectedIds(next);
+  const handleStateSelect = (stateName) => {
+    setSelectedState((prevState) => (prevState === stateName ? '' : stateName));
+    setSearchTerm('');
+  };
+
+  const handleSelectAll = () => {
+    setSelectedIds((prevSelected) => {
+      const eligibleIds = filteredData
+        .filter((c) => !isDisabledConstituency(c))
+        .map((c) => c.id);
+      const allSelected = eligibleIds.length > 0 && eligibleIds.every((id) => prevSelected.has(id));
+
+      if (allSelected) {
+        const next = new Set(prevSelected);
+        eligibleIds.forEach((id) => next.delete(id));
+        return next;
+      }
+
+      const next = new Set(prevSelected);
+      eligibleIds.forEach((id) => next.add(id));
+      return next;
+    });
   };
 
   const handleSave = async () => {
-    setIsSaving(true); setError(null);
+    setIsSaving(true); 
+    setError(null);
     const originalIds = new Set(constituencies.filter(c => c.assigned_tl_id === tl.id).map(c => c.id));
     const idsToAssign = [...selectedIds].filter(id => !originalIds.has(id));
     const idsToUnassign = [...originalIds].filter(id => !selectedIds.has(id));
@@ -87,102 +123,239 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
     }
   };
 
-  const isCurrentStateFullySelected = activeConstituencies.length > 0 && activeConstituencies.every(c => selectedIds.has(c.id));
+  const filteredData = (selectedState 
+    ? constituencies?.filter(c => c.states?.name === selectedState)
+    : constituencies || []
+  ).filter(c => 
+    c.eci_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.tool_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.eci_id.toString().includes(searchTerm)
+  ) || [];
+
+  const stateStats = states.map(state => {
+    const stateConstituencies = (constituencies || []).filter(c => c.states?.name === state);
+    const selectedCount = stateConstituencies.filter(c => selectedIds.has(c.id)).length;
+    return { state, total: stateConstituencies.length, selected: selectedCount };
+  });
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-      <div className="bg-[#F8FAFC] rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col h-[85vh] border border-slate-200 overflow-hidden">
-        
-        {/* Header */}
-        <div className="px-8 py-5 border-b border-slate-200 bg-white flex justify-between items-center z-10">
-          <div>
-            <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <MapPin className="text-blue-600" /> Map Assignment Builder
-            </h3>
-            <p className="text-sm text-slate-500 mt-1">Configuring territory for: <span className="font-bold text-slate-800">{tl.email}</span></p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors">
-            <X size={20} />
-          </button>
-        </div>
+    <Dialog open={isOpen} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{
+      sx: { borderRadius: 2, height: '90vh', display: 'flex', flexDirection: 'column' }
+    }}>
+      <DialogTitle sx={{
+        background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        fontSize: '1.5rem',
+        fontWeight: 700,
+      }}>
+        <MapPin size={28} />
+        Assign Constituencies to Team Leader
+      </DialogTitle>
 
-        {/* State Selection Bar (Horizontal Scroll) */}
-        <div className="bg-white border-b border-slate-200 px-6 py-3 flex gap-2 overflow-x-auto items-center shadow-sm z-10 hide-scrollbar">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2 shrink-0">Filter by State:</span>
-          {uniqueStates.map(state => (
-            <button
-              key={state}
-              onClick={() => setActiveState(state)}
-              className={`shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeState === state 
-                  ? 'bg-blue-600 text-white shadow-md' 
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {state}
-            </button>
-          ))}
-        </div>
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Left Panel - States */}
+        <Box sx={{
+          width: 280,
+          borderRight: '1px solid #e0e0e0',
+          backgroundColor: '#f5f5f5',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              SELECT STATE
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#666' }}>
+              Click to filter constituencies
+            </Typography>
+          </Box>
 
-        {/* Grid Area */}
-        {/* 3-Column Grid with Explicit Buttons */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {activeConstituencies.map((c) => {
-                  const isSelected = selectedIds.has(c.id);
-                  const isOwnedByMe = c.assigned_tl_id === tl.id;
+          <List sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+            {stateStats.map(({ state, total, selected }) => (
+              <ListItemButton
+                key={state}
+                selected={selectedState === state}
+                onClick={() => handleStateSelect(state)}
+                sx={{
+                  mb: 0.5,
+                  borderRadius: 1,
+                  backgroundColor: selectedState === state ? '#0f4c75' : 'transparent',
+                  color: selectedState === state ? 'white' : '#333',
+                  '&:hover': {
+                    backgroundColor: selectedState === state ? '#0f4c75' : '#e8e8e8',
+                  },
+                }}
+              >
+                <ListItemText
+                  primary={state}
+                  secondary={`${selected}/${total}`}
+                  secondaryTypographyProps={{
+                    sx: {
+                      color: selectedState === state ? 'rgba(255,255,255,0.7)' : '#666',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                    }
+                  }}
+                  sx={{ m: 0 }}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        </Box>
 
-                  return (
-                    <div 
-                      key={c.id} 
-                      className={`flex flex-col justify-between rounded-xl border p-4 transition-all duration-200 ${
-                        isSelected 
-                          ? 'bg-blue-50 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.15)] scale-[1.02]' 
-                          : 'bg-white border-slate-200 hover:shadow-md'
-                      }`}
-                    >
-                      <div>
-                        <h5 className={`font-bold text-lg ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>{c.eci_name}</h5>
-                        <span className={`text-xs font-semibold mt-2 inline-block px-2.5 py-1 rounded-md ${
-                          isOwnedByMe ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-600 border border-slate-200'
-                        }`}>
-                          {isOwnedByMe ? 'Currently Assigned to this TL' : 'Unassigned'}
-                        </span>
-                      </div>
-                      
-                      {/* Explicit Action Button */}
-                      <button 
-                        onClick={() => handleToggle(c.id)}
-                        className={`mt-5 w-full py-2.5 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-                          isSelected 
-                            ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700' 
-                            : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
-                        }`}
-                      >
-                        {isSelected ? <><CheckSquare size={16}/> Selected</> : <><Square size={16}/> Select Constituency</>}
-                      </button>
-                    </div>
-                  );
-                })}
-                {activeConstituencies.length === 0 && (
-                  <div className="col-span-full text-center py-12 text-slate-400 font-medium">No constituencies available for this state.</div>
-                )}
-              </div>
+        {/* Right Panel - Constituencies */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <DialogContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 2 }}>
+            {/* User Info */}
+            <Box sx={{ mb: 2 }}>
+              <Chip
+                label={`Team Leader: ${tl.email}`}
+                color="primary"
+                variant="outlined"
+                size="small"
+              />
+            </Box>
 
-        {/* Footer */}
-        <div className="px-8 py-5 border-t border-slate-200 bg-white flex justify-between items-center z-10 shrink-0">
-          <div className="text-slate-600 font-medium bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
-            Total Selected Globally: <span className="font-bold text-blue-700 text-lg ml-1">{selectedIds.size}</span>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={onClose} className="px-6 py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-lg transition-colors">
-              Cancel
-            </button>
-            <button onClick={handleSave} disabled={isSaving} className="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-              <Save size={18} /> {isSaving ? 'Applying Maps...' : 'Confirm Assignments'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+            {/* Search Bar */}
+            <TextField
+              fullWidth
+              size="small"
+              placeholder={selectedState ? `Search in ${selectedState}...` : 'Search constituencies...'}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search size={18} style={{ color: '#999' }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ mb: 2 }}
+            />
+
+            {/* Selection Info */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+              <Button
+                size="small"
+                onClick={handleSelectAll}
+                variant={filteredData.length === filteredData.filter(c => selectedIds.has(c.id)).length ? 'contained' : 'outlined'}
+              >
+                {filteredData.length === filteredData.filter(c => selectedIds.has(c.id)).length && filteredData.length > 0 
+                  ? 'Deselect All' 
+                  : 'Select All'}
+              </Button>
+              <Chip
+                label={`${selectedIds.size} Selected`}
+                color="primary"
+                variant="outlined"
+              />
+            </Box>
+
+            {/* Error Alert */}
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {/* Table */}
+            <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+              {isLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <CircularProgress />
+                </Box>
+              ) : filteredData.length === 0 ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <Typography color="textSecondary">No constituencies found</Typography>
+                </Box>
+              ) : (
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={
+                            filteredData.filter((c) => !isDisabledConstituency(c)).length > 0 &&
+                            filteredData
+                              .filter((c) => !isDisabledConstituency(c))
+                              .every((c) => selectedIds.has(c.id))
+                          }
+                          indeterminate={
+                            filteredData.filter((c) => !isDisabledConstituency(c)).some((c) => selectedIds.has(c.id)) &&
+                            !filteredData
+                              .filter((c) => !isDisabledConstituency(c))
+                              .every((c) => selectedIds.has(c.id))
+                          }
+                          onChange={handleSelectAll}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>ECI ID</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>ECI Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Tool Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Assigned TL</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredData.map((c) => {
+                      const disabled = isDisabledConstituency(c);
+                      return (
+                        <TableRow
+                          key={c.id}
+                          onClick={() => !disabled && handleToggle(c.id)}
+                          sx={{
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            backgroundColor: selectedIds.has(c.id) ? '#e3f2fd' : 'transparent',
+                            '&:hover': { backgroundColor: disabled ? 'transparent' : '#f5f5f5' },
+                            opacity: disabled ? 0.5 : 1,
+                          }}
+                        >
+                          <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={selectedIds.has(c.id)}
+                              disabled={disabled}
+                              onChange={() => handleToggle(c.id)}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: '#0f4c75' }}>{c.eci_id}</TableCell>
+                          <TableCell>{c.eci_name}</TableCell>
+                          <TableCell>{c.tool_name || '—'}</TableCell>
+                          <TableCell>
+                            {c.assigned_tl_id
+                              ? c.assigned_tl_id === tl.id
+                                ? 'Current TL'
+                                : c.assigned_tl_id
+                              : 'Unassigned'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </TableContainer>
+          </DialogContent>
+        </Box>
+      </Box>
+
+      <DialogActions sx={{ p: 2, borderTop: '1px solid #e0e0e0' }}>
+        <Button onClick={onClose} disabled={isSaving} variant="outlined">
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSave}
+          disabled={isSaving}
+          variant="contained"
+          sx={{
+            background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
+          }}
+        >
+          {isSaving ? 'Saving...' : 'Save Assignments'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

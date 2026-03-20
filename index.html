@@ -6,7 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>election-dashboard</title>
     <style>
-      body {
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+      html, body {
         width: 100%;
         height: 100%;
         margin: 0;
@@ -20,10 +25,59 @@
         margin: 0;
         padding: 0;
       }
+      
+      #error-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: red;
+        color: white;
+        padding: 20px;
+        font-family: monospace;
+        overflow: auto;
+        display: none;
+        z-index: 9999;
+      }
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #0f4c75 0%, #2a6fa6 50%, #00a86b 100%); font-family: Arial; color: white; font-size: 24px;">
+        <div style="text-align: center;">
+          <p>Loading application...</p>
+          <p style="font-size: 12px; margin-top: 20px; opacity: 0.8;">If this message persists, there may be an error. Check the error panel below.</p>
+        </div>
+      </div>
+    </div>
+    <div id="error-container">
+      <h1>Error Loading Application</h1>
+      <p id="error-message" style="margin-top: 20px; white-space: pre-wrap;"></p>
+    </div>
+    
+    <script>
+      // Global error handler
+      window.addEventListener('error', function(event) {
+        const errorContainer = document.getElementById('error-container');
+        const errorMessage = document.getElementById('error-message');
+        errorContainer.style.display = 'block';
+        errorMessage.textContent = `ERROR: ${event.message}\n\nFile: ${event.filename}\nLine: ${event.lineno}:${event.colno}\n\nStack: ${event.error?.stack || 'N/A'}`;
+        console.error('Global error:', event);
+      });
+      
+      // Unhandled promise rejection handler
+      window.addEventListener('unhandledrejection', function(event) {
+        const errorContainer = document.getElementById('error-container');
+        const errorMessage = document.getElementById('error-message');
+        errorContainer.style.display = 'block';
+        errorMessage.textContent = `UNHANDLED PROMISE REJECTION: ${event.reason}\n\nStack: ${event.reason?.stack || 'N/A'}`;
+        console.error('Unhandled rejection:', event);
+      });
+      
+      console.log('Error handlers initialized');
+    </script>
+    
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

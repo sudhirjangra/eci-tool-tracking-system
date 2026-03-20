@@ -2,7 +2,24 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { Map, LogOut, Clock, Activity } from 'lucide-react';
+import {
+  Box,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Button,
+  Typography,
+  Chip,
+  CircularProgress
+} from '@mui/material';
+import {
+  Logout as LogoutIcon,
+  Info as InfoIcon,
+} from '@mui/icons-material';
+import { Clock as ClockIcon } from 'lucide-react';
 
 export default function RADashboard() {
   const navigate = useNavigate();
@@ -16,26 +33,45 @@ export default function RADashboard() {
   const { data: assignments, isLoading } = useQuery({
     queryKey: ['ra-assignments', currentUser?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: constData, error: constErr } = await supabase
         .from('constituencies')
         .select(`
           id, 
           eci_name, 
           tool_name, 
           states(name),
-          election_data (
-            eci_round, tool_round, last_updated_at
-          )
+          assigned_ra_id
         `)
         .eq('assigned_ra_id', currentUser.id)
         .order('states(name)', { ascending: true })
         .order('eci_name', { ascending: true });
 
-      if (error) throw error;
-      return data;
+      if (constErr) throw constErr;
+
+      // Get the constituency IDs we need
+      const constIds = constData?.map(c => c.id) || [];
+
+      // Separately fetch election data for these constituencies
+      const { data: electionData, error: electionErr } = await supabase
+        .from('election_data')
+        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, tool_last_updated_at')
+        .in('constituency_id', constIds);
+
+      if (electionErr) throw electionErr;
+
+      // Merge election data into constituencies
+      const electionMap = {};
+      electionData?.forEach(e => {
+        electionMap[e.constituency_id] = e;
+      });
+
+      return constData?.map(c => ({
+        ...c,
+        election_data: [electionMap[c.id]] || [{ eci_round: 0, tool_round: 0 }]
+      })) || [];
     },
     enabled: !!currentUser?.id,
-    refetchInterval: 10000, // MAGIC: Auto-refreshes data every 10 seconds
+    refetchInterval: 10000,
   });
 
   const handleLogout = async () => {
@@ -48,113 +84,321 @@ export default function RADashboard() {
     return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // Helper function to visually show if the tool is lagging behind ECI
   const getSyncStatus = (eci, tool) => {
-    if (eci === 0 && tool === 0) return { label: 'Not Started', color: 'bg-gray-100 text-gray-800' };
-    if (tool < eci) return { label: 'Tool Lagging', color: 'bg-red-100 text-red-800' };
-    if (tool > eci) return { label: 'Tool Ahead', color: 'bg-orange-100 text-orange-800' };
-    return { label: 'In Sync', color: 'bg-green-100 text-green-800' };
+    if (eci === 0 && tool === 0) return { label: 'Not Started', styles: { backgroundColor: '#f3f4f6', color: '#6b7280' } };
+    if (tool < eci) return { label: 'Tool Lagging', styles: { backgroundColor: '#fee2e2', color: '#991b1b' } };
+    if (tool > eci) return { label: 'Tool Ahead', styles: { backgroundColor: '#fef3c7', color: '#92400e' } };
+    return { label: 'In Sync', styles: { backgroundColor: '#d1fae5', color: '#059669' } };
+  };
+
+  const formatLag = (seconds) => {
+    if (seconds === null || seconds === undefined) return '--';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  const getLagPalette = (seconds) => {
+    if (seconds === null || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
+    if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
+    if (seconds <= 120) return { bgcolor: '#fef3c7', color: '#92400e' };
+    return { bgcolor: '#fee2e2', color: '#991b1b' };
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%', backgroundColor: '#f1f5f9', fontFamily: 'sans-serif', overflow: 'hidden' }}>
-      {/* Sidebar */}
-      <aside style={{ width: '256px', backgroundColor: '#000f1a', color: 'white', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', zIndex: 10 }}>
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-2xl font-bold tracking-wider text-blue-400">ELECTION '26</h1>
-          <p className="text-slate-400 text-sm mt-1">Analyst Tracker</p>
-        </div>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>
+      {/* Top Navigation Header */}
+      <Box sx={{ 
+        background: 'linear-gradient(135deg, #00a86b 0%, #33c292 100%)',
+        color: '#fff',
+        px: 4,
+        py: 2.5,
+        borderBottom: '2px solid #0f8a57',
+        boxShadow: '0 4px 12px rgba(0, 168, 107, 0.15)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        {/* Logo/Title */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{
+            width: 44,
+            height: 44,
+            bgcolor: 'rgba(255,255,255,0.2)',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.5rem',
+            fontWeight: 'bold',
+            border: '2px solid rgba(255,255,255,0.3)'
+          }}>
+            R
+          </Box>
+          <Box>
+            <Typography sx={{ fontSize: '1.3rem', fontWeight: 'bold', lineHeight: 1 }}>Elections 2026</Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>RESEARCH ANALYST TRACKER</Typography>
+          </Box>
+        </Box>
 
-        <nav className="flex-1 px-4 py-6 space-y-2">
-          <button className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-600 text-white shadow-sm transition-colors">
-            <Activity size={20} />
-            <span className="font-medium">Live Feed</span>
-          </button>
-        </nav>
-
-        <div className="p-4 border-t border-slate-800">
-          <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
-            <LogOut size={20} />
-            <span className="font-medium">Sign Out</span>
-          </button>
-        </div>
-      </aside>
+        {/* User Info & Logout */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ textAlign: 'right', pr: 2, borderRight: '1px solid rgba(255,255,255,0.2)' }}>
+            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600 }}>Research Analyst</Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>{currentUser?.email}</Typography>
+          </Box>
+          <Button
+            onClick={handleLogout}
+            startIcon={<LogoutIcon />}
+            sx={{ 
+              color: '#fff', 
+              textTransform: 'none',
+              fontSize: '0.9rem',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' }
+            }}
+          >
+            Sign Out
+          </Button>
+        </Box>
+      </Box>
 
       {/* Main Content Area */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', width: '100%' }}>
-        <header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #cbd5e1', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-slate-800">Live Round Tracking</h2>
-            <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-              Auto-updating
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-             <span className="text-sm font-medium text-slate-500">{currentUser?.email}</span>
-             <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold border border-blue-200">RA</div>
-          </div>
-        </header>
+      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 1.5, bgcolor: '#f0f4f8' }}>
+        {/* Page Title */}
+        <Box sx={{ mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 0.5 }}>
+            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#00a86b' }}>
+              Live Territory Tracking
+            </Typography>
+            <Box sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              px: 2.5,
+              py: 1,
+              backgroundColor: '#d1fae5',
+              border: '1px solid #6ee7b7',
+              borderRadius: '20px',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              color: '#059669'
+            }}>
+              <Box sx={{
+                width: 6,
+                height: 6,
+                backgroundColor: '#10b981',
+                borderRadius: '50%',
+                animation: 'pulse 2s infinite'
+              }} />
+              Live Updates Active
+            </Box>
+          </Box>
+          <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
+            Monitor your assigned constituencies in real-time
+          </Typography>
+        </Box>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: '2rem', width: '100%' }}>
-          <div style={{ backgroundColor: '#ffffff', borderRadius: '0.75rem', boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
-            <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="text-lg font-medium text-slate-900">
-                Monitored Territories ({assignments?.length || 0})
-              </h3>
-            </div>
-            
-            <div style={{ overflow: 'auto', flex: 1 }}>
-              {isLoading ? (
-                <div className="p-12 text-center text-blue-600 font-medium">Connecting to live feed...</div>
-              ) : assignments?.length === 0 ? (
-                <div className="p-12 text-center text-slate-500">
-                  <Map size={48} className="mx-auto text-slate-300 mb-4" />
-                  <p className="text-lg font-medium text-slate-700">No Assignments Yet</p>
-                  <p className="text-sm mt-1">Waiting for your Team Leader to delegate territories to you.</p>
-                </div>
-              ) : (
-                <table className="min-w-full divide-y divide-slate-200">
-                  <thead className="bg-slate-50 sticky top-0">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">ECI Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">State</th>
-                      <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">ECI Rnd</th>
-                      <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Tool Rnd</th>
-                      <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Last Sync</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-slate-100">
-                    {assignments?.map((row) => {
-                      const data = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
-                      const status = getSyncStatus(data.eci_round, data.tool_round);
-                      
-                      return (
-                        <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900">{row.eci_name}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{row.states?.name}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-mono font-bold text-slate-800 bg-slate-50/50">{data.eci_round}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-mono font-bold text-blue-700 bg-blue-50/50">{data.tool_round}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-center mt-1">
-                             <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${status.color}`}>
-                               {status.label}
-                             </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 flex items-center justify-end gap-2 mt-1">
-                            <Clock size={14} className="text-slate-400" />
-                            {formatTime(data.last_updated_at)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
+        {/* Main Table Card */}
+        <Box sx={{
+          bgcolor: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          display: 'flex',
+          flexDirection: 'column',
+          height: 'calc(100% - 60px)',
+          maxWidth: '100%'
+        }}>
+          {/* Table Header */}
+          <Box sx={{
+            p: 4,
+            bgcolor: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f4c75' }}>
+              Your Assigned Territories ({assignments?.length || 0})
+            </Typography>
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 2.5,
+              py: 1.2,
+              backgroundColor: '#e0f2fe',
+              border: '1px solid #7dd3fc',
+              borderRadius: '8px',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              color: '#0c4a6e'
+            }}>
+              <InfoIcon sx={{ fontSize: '1rem' }} />
+              Auto-refreshing every 10s
+            </Box>
+          </Box>
+
+          {/* Table Content */}
+          {isLoading ? (
+            <Box sx={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 2
+            }}>
+              <CircularProgress size={50} sx={{ color: '#00a86b' }} />
+              <Typography sx={{ color: '#64748b', fontWeight: 600 }}>
+                Connecting to live feed...
+              </Typography>
+            </Box>
+          ) : assignments?.length === 0 ? (
+            <Box sx={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              p: 4
+            }}>
+              <Box sx={{ fontSize: '3rem', mb: 2 }}>📍</Box>
+              <Typography sx={{ fontSize: '1.1rem', fontWeight: 600, color: '#475569', mb: 1 }}>
+                No Territories Assigned
+              </Typography>
+              <Typography sx={{ fontSize: '0.9rem', color: '#94a3b8' }}>
+                Waiting for your Team Leader to delegate territories to you
+              </Typography>
+            </Box>
+          ) : (
+            <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+              <Table stickyHeader>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      Constituency
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      State
+                    </TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      ECI Round
+                    </TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      Tool Round
+                    </TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      Sync Status
+                    </TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      Lag Time
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      Last Updated
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {assignments?.map((row) => {
+                    const data = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
+                    const status = getSyncStatus(data.eci_round, data.tool_round);
+
+                    const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
+                    const toolLastUpdatedMillis = data.tool_last_updated_at ? new Date(data.tool_last_updated_at).getTime() : null;
+                    const eciLagSeconds = eciLastUpdatedMillis ? Math.floor((Date.now() - eciLastUpdatedMillis) / 1000) : null;
+                    const toolLagSeconds = toolLastUpdatedMillis ? Math.floor((Date.now() - toolLastUpdatedMillis) / 1000) : null;
+                    const lastUpdatedAt = data.tool_last_updated_at || data.eci_last_updated_at;
+
+                    return (
+                      <TableRow
+                        key={row.id}
+                        sx={{
+                          '&:hover': { bgcolor: '#f8fafc' },
+                          transition: 'all 0.2s ease',
+                          borderBottom: '1px solid #e2e8f0'
+                        }}
+                      >
+                        <TableCell sx={{ py: 2, fontWeight: 600, color: '#0f4c75' }}>
+                          {row.eci_name}
+                        </TableCell>
+                        <TableCell sx={{ py: 2, color: '#64748b' }}>
+                          {row.states?.name}
+                        </TableCell>
+                        <TableCell align="center" sx={{ py: 2 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                            <Chip
+                              label={data.eci_round}
+                              size="small"
+                              sx={{
+                                bgcolor: '#e0e7ff',
+                                color: '#4f46e5',
+                                fontWeight: 700
+                              }}
+                            />
+                            <Typography variant="caption" sx={{ fontWeight: 600, fontFamily: 'monospace', ...getLagPalette(eciLagSeconds) }}>
+                              {formatLag(eciLagSeconds)}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center" sx={{ py: 2 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                            <Chip
+                              label={data.tool_round}
+                              size="small"
+                              sx={{
+                                bgcolor: '#fce7f3',
+                                color: '#be185d',
+                                fontWeight: 700
+                              }}
+                            />
+                            <Typography variant="caption" sx={{ fontWeight: 600, fontFamily: 'monospace', ...getLagPalette(toolLagSeconds) }}>
+                              {formatLag(toolLagSeconds)}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center" sx={{ py: 2 }}>
+                          <Box sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            px: 2,
+                            py: 1,
+                            borderRadius: '6px',
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                            ...status.styles
+                          }}>
+                            {status.label}
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center" sx={{ py: 2 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#475569' }}>
+                            ECI {formatLag(eciLagSeconds)} | TOOL {formatLag(toolLagSeconds)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ py: 2, color: '#64748b', fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                          {formatTime(lastUpdatedAt)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+      </Box>
+
+      <style>
+        {`
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+        `}
+      </style>
+    </Box>
   );
 }

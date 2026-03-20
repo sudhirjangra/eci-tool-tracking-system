@@ -10,7 +10,6 @@ import AdminDashboard from './features/admin/AdminDashboard';
 import RADashboard from './features/ra/RADashboard';
 import TLDashboard from './features/tl/TLDashboard';
 
-// Create a TanStack Query client for our data fetching
 const queryClient = new QueryClient();
 
 function App() {
@@ -21,14 +20,10 @@ function App() {
         <Box sx={{ width: '100%', height: '100vh', overflow: 'hidden' }}>
           <Router>
             <Routes>
-              {/* Public Route */}
               <Route path="/login" element={<Login />} />
-              {/* Protected Routes (We will add strict role guards later) */}
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/tl" element={<TLDashboard />} />
               <Route path="/ra" element={<RADashboard />} />
-
-              {/* Default Route */}
               <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
           </Router>

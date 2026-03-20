@@ -1,24 +1,48 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { X, Search, Map, Save, AlertCircle } from 'lucide-react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Box,
+  Typography,
+  TextField,
+  List,
+  ListItemButton,
+  ListItemText,
+  Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Checkbox,
+  CircularProgress,
+  Alert,
+  InputAdornment,
+} from '@mui/material';
+import { Map, Search } from 'lucide-react';
 
 export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [selectedState, setSelectedState] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch ONLY the constituencies that the current Team Leader owns
   const { data: constituencies, isLoading } = useQuery({
     queryKey: ['tl-delegation-map', tlId],
     queryFn: async () => {
       if (!tlId) return [];
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_name, states(name), assigned_ra_id`)
-        .eq('assigned_tl_id', tlId) // STRICT SECURITY: Only their own map
-        .order('id', { ascending: true });
+        .select(`id, eci_id, eci_name, tool_name, states(name), assigned_ra_id`)
+        .eq('assigned_tl_id', tlId)
+        .order('states(name),eci_name', { ascending: true });
 
       if (error) throw error;
       return data;
@@ -26,7 +50,28 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
     enabled: !!tlId && isOpen, 
   });
 
-  // Pre-check the boxes for constituencies this specific RA already owns
+  const { data: userEmails } = useQuery({
+    queryKey: ['all-user-emails'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_all_user_emails');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: isOpen,
+  });
+
+  const raEmailMap = useMemo(() => {
+    const map = {};
+    userEmails?.forEach((u) => {
+      map[u.id] = u.email;
+    });
+    return map;
+  }, [userEmails]);
+
+  const states = [...new Set((constituencies || []).map(c => c.states?.name).filter(Boolean))].sort();
+
+  const isDisabledConstituency = (c) => c.assigned_ra_id && c.assigned_ra_id !== ra.id;
+
   useEffect(() => {
     if (constituencies && ra) {
       const alreadyAssigned = constituencies
@@ -36,13 +81,42 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
     }
   }, [constituencies, ra?.id]);
 
-  if (!isOpen || !ra) return null;
+  if (!ra) return null;
 
   const handleToggle = (id) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedIds(next);
+    const constituency = constituencies?.find((c) => c.id === id);
+    if (!constituency || isDisabledConstituency(constituency)) return;
+
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleStateSelect = (stateName) => {
+    setSelectedState((prevState) => (prevState === stateName ? '' : stateName));
+    setSearchTerm('');
+  };
+
+  const handleSelectAll = () => {
+    setSelectedIds((prevSelected) => {
+      const eligibleIds = filteredData
+        .filter((c) => !isDisabledConstituency(c))
+        .map((c) => c.id);
+      const allSelected = eligibleIds.length > 0 && eligibleIds.every((id) => prevSelected.has(id));
+
+      if (allSelected) {
+        const next = new Set(prevSelected);
+        eligibleIds.forEach((id) => next.delete(id));
+        return next;
+      }
+
+      const next = new Set(prevSelected);
+      eligibleIds.forEach((id) => next.add(id));
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -54,7 +128,6 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
     const idsToUnassign = [...originalIds].filter(id => !selectedIds.has(id));
 
     try {
-      // 1. Assign new constituencies to this RA
       if (idsToAssign.length > 0) {
         const { error: assignError } = await supabase
           .from('constituencies')
@@ -63,7 +136,6 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
         if (assignError) throw assignError;
       }
 
-      // 2. Unassign removed ones (They go back into the TL's general pool)
       if (idsToUnassign.length > 0) {
         const { error: unassignError } = await supabase
           .from('constituencies')
@@ -80,118 +152,249 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
     }
   };
 
-  const filteredData = constituencies?.filter(c => 
+  const filteredData = (selectedState 
+    ? constituencies?.filter(c => c.states?.name === selectedState)
+    : constituencies || []
+  ).filter(c => 
     c.eci_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.states?.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    c.tool_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.eci_id.toString().includes(searchTerm)
+  ) || [];
+
+  const stateStats = states.map(state => {
+    const stateConstituencies = (constituencies || []).filter(c => c.states?.name === state);
+    const selectedCount = stateConstituencies.filter(c => selectedIds.has(c.id)).length;
+    return { state, total: stateConstituencies.length, selected: selectedCount };
+  });
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-              <Map size={20} className="text-emerald-600" />
-              Delegate Territories
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">Delegating to RA: <span className="font-semibold text-gray-800">{ra.email}</span></p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X size={24} />
-          </button>
-        </div>
+    <Dialog open={isOpen} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{
+      sx: { borderRadius: 2, height: '90vh', display: 'flex', flexDirection: 'column' }
+    }}>
+      <DialogTitle sx={{
+        background: 'linear-gradient(135deg, #00a86b 0%, #33c292 100%)',
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        fontSize: '1.5rem',
+        fontWeight: 700,
+      }}>
+        <Map size={28} />
+        Delegate Territories to Research Analyst
+      </DialogTitle>
 
-        {/* Search */}
-        <div className="p-4 border-b border-gray-200 bg-white space-y-3 shrink-0">
-          {error && (
-            <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm flex gap-2 items-start">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-          
-          <div className="flex gap-4 items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search your assigned territories..."
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Left Panel - States */}
+        <Box sx={{
+          width: 280,
+          borderRight: '1px solid #e0e0e0',
+          backgroundColor: '#f5f5f5',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              SELECT STATE
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#666' }}>
+              Click to filter territories
+            </Typography>
+          </Box>
+
+          <List sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+            {stateStats.map(({ state, total, selected }) => (
+              <ListItemButton
+                key={state}
+                selected={selectedState === state}
+                onClick={() => handleStateSelect(state)}
+                sx={{
+                  mb: 0.5,
+                  borderRadius: 1,
+                  backgroundColor: selectedState === state ? '#00a86b' : 'transparent',
+                  color: selectedState === state ? 'white' : '#333',
+                  '&:hover': {
+                    backgroundColor: selectedState === state ? '#00a86b' : '#e8e8e8',
+                  },
+                }}
+              >
+                <ListItemText
+                  primary={state}
+                  secondary={`${selected}/${total}`}
+                  secondaryTypographyProps={{
+                    sx: {
+                      color: selectedState === state ? 'rgba(255,255,255,0.7)' : '#666',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                    }
+                  }}
+                  sx={{ m: 0 }}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        </Box>
+
+        {/* Right Panel - Territories */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <DialogContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 2 }}>
+            {/* User Info */}
+            <Box sx={{ mb: 2 }}>
+              <Chip
+                label={`Research Analyst: ${ra.email}`}
+                sx={{
+                  backgroundColor: '#e0f5f1',
+                  color: '#00a86b',
+                  fontWeight: 600,
+                }}
               />
-            </div>
-            <div className="text-sm font-medium text-emerald-700 bg-emerald-50 px-4 py-2 rounded-lg border border-emerald-100">
-              {selectedIds.size} Selected
-            </div>
-          </div>
-        </div>
+            </Box>
 
-        {/* Scrollable Table Area */}
-        <div className="flex-1 overflow-y-auto bg-white">
-          {isLoading ? (
-            <div className="flex justify-center p-8 text-emerald-600 font-medium">Loading your territories...</div>
-          ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Select</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ECI Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Status</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredData?.map((c) => {
-                  const isSelected = selectedIds.has(c.id);
-                  const isAssignedToThisRA = c.assigned_ra_id === ra.id;
-                  const isAssignedToOtherRA = c.assigned_ra_id !== null && c.assigned_ra_id !== ra.id;
-                  
-                  return (
-                    <tr 
-                      key={c.id} 
-                      onClick={() => handleToggle(c.id)}
-                      className={`cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50 hover:bg-emerald-100' : 'hover:bg-gray-50'}`}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer pointer-events-none"
-                          checked={isSelected}
-                          readOnly
+            {/* Search Bar */}
+            <TextField
+              fullWidth
+              size="small"
+              placeholder={selectedState ? `Search in ${selectedState}...` : 'Search territories...'}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search size={18} style={{ color: '#999' }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ mb: 2 }}
+            />
+
+            {/* Selection Info */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+              <Button
+                size="small"
+                onClick={handleSelectAll}
+                variant={filteredData.length === filteredData.filter(c => selectedIds.has(c.id)).length ? 'contained' : 'outlined'}
+                sx={{
+                  backgroundColor: filteredData.length === filteredData.filter(c => selectedIds.has(c.id)).length ? '#00a86b' : undefined,
+                }}
+              >
+                {filteredData.length === filteredData.filter(c => selectedIds.has(c.id)).length && filteredData.length > 0 
+                  ? 'Deselect All' 
+                  : 'Select All'}
+              </Button>
+              <Chip
+                label={`${selectedIds.size} Selected`}
+                sx={{
+                  backgroundColor: '#e0f5f1',
+                  color: '#00a86b',
+                  fontWeight: 700,
+                }}
+              />
+            </Box>
+
+            {/* Error Alert */}
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {/* Table */}
+            <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+              {isLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <CircularProgress sx={{ color: '#00a86b' }} />
+                </Box>
+              ) : filteredData.length === 0 ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <Typography color="textSecondary">No territories found</Typography>
+                </Box>
+              ) : (
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={
+                            filteredData.filter((c) => !isDisabledConstituency(c)).length > 0 &&
+                            filteredData
+                              .filter((c) => !isDisabledConstituency(c))
+                              .every((c) => selectedIds.has(c.id))
+                          }
+                          indeterminate={
+                            filteredData.filter((c) => !isDisabledConstituency(c)).some((c) => selectedIds.has(c.id)) &&
+                            !filteredData
+                              .filter((c) => !isDisabledConstituency(c))
+                              .every((c) => selectedIds.has(c.id))
+                          }
+                          onChange={handleSelectAll}
+                          sx={{ color: '#00a86b' }}
                         />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{c.eci_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.states?.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {isAssignedToThisRA ? (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Assigned Here</span>
-                        ) : isAssignedToOtherRA ? (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800">With Another RA</span>
-                        ) : (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Unassigned</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>ECI ID</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>ECI Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Tool Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Assigned RA</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredData.map((c) => {
+                      const disabled = isDisabledConstituency(c);
+                      return (
+                        <TableRow
+                          key={c.id}
+                          onClick={() => !disabled && handleToggle(c.id)}
+                          sx={{
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            backgroundColor: selectedIds.has(c.id) ? '#e0f5f1' : 'transparent',
+                            '&:hover': { backgroundColor: disabled ? 'transparent' : '#f5f5f5' },
+                            opacity: disabled ? 0.5 : 1,
+                          }}
+                        >
+                          <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={selectedIds.has(c.id)}
+                              disabled={disabled}
+                              onChange={() => handleToggle(c.id)}
+                              sx={{ color: '#00a86b' }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: '#00a86b' }}>{c.eci_id}</TableCell>
+                          <TableCell>{c.eci_name}</TableCell>
+                          <TableCell>{c.tool_name || '—'}</TableCell>
+                          <TableCell>
+                            {c.assigned_ra_id
+                              ? c.assigned_ra_id === ra.id
+                                ? `${ra.email} (Current RA)`
+                                : raEmailMap[c.assigned_ra_id] || c.assigned_ra_id
+                              : 'Unassigned'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </TableContainer>
+          </DialogContent>
+        </Box>
+      </Box>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3 shrink-0 rounded-b-xl">
-          <button onClick={onClose} className="px-4 py-2 border border-gray-300 text-gray-700 bg-white rounded-lg hover:bg-gray-50 font-medium">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium flex items-center gap-2 disabled:opacity-50">
-            <Save size={18} />
-            {isSaving ? 'Saving...' : 'Save Delegation'}
-          </button>
-        </div>
-      </div>
-    </div>
+      <DialogActions sx={{ p: 2, borderTop: '1px solid #e0e0e0' }}>
+        <Button onClick={onClose} disabled={isSaving} variant="outlined">
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSave}
+          disabled={isSaving}
+          variant="contained"
+          sx={{
+            background: 'linear-gradient(135deg, #00a86b 0%, #33c292 100%)',
+          }}
+        >
+          {isSaving ? 'Saving...' : 'Save Delegation'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
