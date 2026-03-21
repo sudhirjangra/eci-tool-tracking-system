@@ -27,6 +27,9 @@ import {
   AppBar,
   Dialog,
   Collapse,
+  TextField,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Logout as LogoutIcon,
@@ -43,15 +46,20 @@ import {
 
 export default function TLDashboard() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('my-map');
+  const [activeTab, setActiveTab] = useState('ra-status');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedRAForMap, setSelectedRAForMap] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [searchRA, setSearchRA] = useState('');
+  const [filterState, setFilterState] = useState('');
 
   // Get current user session on load
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setCurrentUser(data.user));
-  }, []);
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUser(data.user);
+      if (!data.user) navigate('/login');
+    });
+  }, [navigate]);
 
   // Fetch the TL's assigned constituencies
   const { data: myConstituencies, isLoading: loadingMap } = useQuery({
@@ -91,55 +99,74 @@ export default function TLDashboard() {
     enabled: !!currentUser?.id,
   });
 
+  // Get unique state names for dropdown
+  const stateOptions = useMemo(() => {
+    if (!myConstituencies) return [];
+    const states = myConstituencies.map(c => c.states?.name).filter(Boolean);
+    return Array.from(new Set(states)).sort();
+  }, [myConstituencies]);
+
+  // Filter and search logic for RA Performance
   const raStatusRows = useMemo(() => {
     if (!myRAs || !myConstituencies) return [];
     const map = Object.fromEntries((electionData || []).map((record) => [record.constituency_id, record]));
 
-    return myRAs.map((ra) => {
-      const assigned = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id);
-      const territories = assigned.map((c) => {
-        const data = map[c.id] || {};
-        const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
-        const toolLastUpdatedMillis = data.tool_last_updated_at ? new Date(data.tool_last_updated_at).getTime() : null;
-        const eciLagSeconds = eciLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - eciLastUpdatedMillis) / 1000)) : null;
-        const toolLagSeconds = toolLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - toolLastUpdatedMillis) / 1000)) : null;
+    return myRAs
+      .filter(ra => {
+        const matchName = ra.name?.toLowerCase().includes(searchRA.toLowerCase()) || ra.email?.toLowerCase().includes(searchRA.toLowerCase());
+        if (searchRA && !matchName) return false;
+        if (filterState) {
+          // Only show RAs with at least one assigned constituency in the selected state
+          const assigned = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id && c.states?.name === filterState);
+          return assigned.length > 0;
+        }
+        return true;
+      })
+      .map((ra) => {
+        const assigned = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id && (!filterState || c.states?.name === filterState));
+        const territories = assigned.map((c) => {
+          const data = map[c.id] || {};
+          const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
+          const toolLastUpdatedMillis = data.tool_last_updated_at ? new Date(data.tool_last_updated_at).getTime() : null;
+          const eciLagSeconds = eciLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - eciLastUpdatedMillis) / 1000)) : null;
+          const toolLagSeconds = toolLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - toolLastUpdatedMillis) / 1000)) : null;
 
-        const territoryLagSeconds = Math.max(eciLagSeconds || 0, toolLagSeconds || 0);
-        const status = (eciLastUpdatedMillis || toolLastUpdatedMillis) ?
-          (territoryLagSeconds <= 60 ? 'Active' : territoryLagSeconds <= 120 ? 'Warning' : 'Inactive') : 'No Data';
+          const territoryLagSeconds = Math.max(eciLagSeconds || 0, toolLagSeconds || 0);
+          const status = (eciLastUpdatedMillis || toolLastUpdatedMillis) ?
+            (territoryLagSeconds <= 60 ? 'Active' : territoryLagSeconds <= 120 ? 'Warning' : 'Inactive') : 'No Data';
 
-        const latestUpdated = Math.max(eciLastUpdatedMillis || 0, toolLastUpdatedMillis || 0);
+          const latestUpdated = Math.max(eciLastUpdatedMillis || 0, toolLastUpdatedMillis || 0);
+
+          return {
+            id: c.id,
+            state: c.states?.name || 'Unknown',
+            eci_name: c.eci_name,
+            tool_name: c.tool_name || '—',
+            eci_round: data.eci_round ?? 0,
+            tool_round: data.tool_round ?? 0,
+            eci_last_updated_at: data.eci_last_updated_at ? new Date(data.eci_last_updated_at).toLocaleString() : '-',
+            tool_last_updated_at: data.tool_last_updated_at ? new Date(data.tool_last_updated_at).toLocaleString() : '-',
+            eciLagSeconds: eciLagSeconds !== null ? eciLagSeconds : '-',
+            toolLagSeconds: toolLagSeconds !== null ? toolLagSeconds : '-',
+            lagSeconds: territoryLagSeconds !== null ? territoryLagSeconds : '-',
+            status,
+          };
+        });
+
+        const lastUpdatedAt = territories
+          .flatMap((x) => [x.eci_last_updated_at, x.tool_last_updated_at])
+          .map((ts) => (ts && ts !== '-' ? new Date(ts).getTime() : 0))
+          .filter(Boolean);
+        const latestUpdate = lastUpdatedAt.length ? new Date(Math.max(...lastUpdatedAt)).toLocaleString() : '-';
 
         return {
-          id: c.id,
-          state: c.states?.name || 'Unknown',
-          eci_name: c.eci_name,
-          tool_name: c.tool_name || '—',
-          eci_round: data.eci_round ?? 0,
-          tool_round: data.tool_round ?? 0,
-          eci_last_updated_at: data.eci_last_updated_at ? new Date(data.eci_last_updated_at).toLocaleString() : '-',
-          tool_last_updated_at: data.tool_last_updated_at ? new Date(data.tool_last_updated_at).toLocaleString() : '-',
-          eciLagSeconds: eciLagSeconds !== null ? eciLagSeconds : '-',
-          toolLagSeconds: toolLagSeconds !== null ? toolLagSeconds : '-',
-          lagSeconds: territoryLagSeconds !== null ? territoryLagSeconds : '-',
-          status,
+          ...ra,
+          assignedCount: assigned.length,
+          lastUpdatedAt: latestUpdate,
+          territories,
         };
       });
-
-      const lastUpdatedAt = territories
-        .flatMap((x) => [x.eci_last_updated_at, x.tool_last_updated_at])
-        .map((ts) => (ts && ts !== '-' ? new Date(ts).getTime() : 0))
-        .filter(Boolean);
-      const latestUpdate = lastUpdatedAt.length ? new Date(Math.max(...lastUpdatedAt)).toLocaleString() : '-';
-
-      return {
-        ...ra,
-        assignedCount: assigned.length,
-        lastUpdatedAt: latestUpdate,
-        territories,
-      };
-    });
-  }, [myRAs, myConstituencies, electionData]);
+  }, [myRAs, myConstituencies, electionData, searchRA, filterState]);
 
   const formatLag = (seconds) => {
     if (seconds === null || seconds === '-' || seconds === undefined) return '--';
@@ -155,9 +182,10 @@ export default function TLDashboard() {
     return { color: '#991b1b' };
   };
 
-  const handleDeleteRA = async (raId, email) => {
+  const handleDeleteRA = async (raId, email, name) => {
+    const displayName = name || email;
     const isConfirmed = window.confirm(
-      `WARNING: Are you sure you want to remove ${email}?\n\nThis will permanently delete their account and return all their assigned territories back to your unassigned pool.`
+      `WARNING: Are you sure you want to remove ${displayName}?\n\nThis will permanently delete their account and return all their assigned territories back to your unassigned pool.`
     );
 
     if (!isConfirmed) return;
@@ -432,92 +460,63 @@ export default function TLDashboard() {
                 </Button>
               </Box>
             ) : (
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 3 }}>
-                {myRAs.map((ra) => (
-                  <Box
-                    key={ra.id}
-                    sx={{
-                      bgcolor: '#fff',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        boxShadow: '0 8px 24px rgba(15, 76, 117, 0.12)',
-                        borderColor: '#00a86b'
-                      }
-                    }}
-                  >
-                    {/* Card Header */}
-                    <Box sx={{
-                      background: 'linear-gradient(135deg, #00a86b 0%, #33c292 100%)',
-                      color: '#fff',
-                      p: 3,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'start'
-                    }}>
-                      <Box>
-                        <Typography sx={{ fontSize: '0.8rem', opacity: 0.9, mb: 0.5, fontWeight: 600, letterSpacing: '0.5px' }}>
-                          RESEARCH ANALYST
-                        </Typography>
-                        <Typography sx={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                          {ra.email}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={ra.role?.toUpperCase()}
-                        size="small"
-                        sx={{
-                          bgcolor: 'rgba(255,255,255,0.2)',
-                          color: '#fff',
-                          fontWeight: 700,
-                          border: '1px solid rgba(255,255,255,0.3)'
-                        }}
-                      />
-                    </Box>
-
-                    {/* Card Body */}
-                    <Box sx={{ p: 3 }}>
-                      <Box sx={{ display: 'flex', gap: 2 }}>
-                        <Button
-                          fullWidth
-                          variant="contained"
-                          startIcon={<EditIcon fontSize="small" />}
-                          onClick={() => setSelectedRAForMap(ra)}
-                          sx={{
-                            background: 'linear-gradient(135deg, #0f4c75 0%, #1a5a8e 100%)',
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            fontSize: '0.9rem',
-                            py: 1.2
-                          }}
-                        >
-                          Delegate Territory
-                        </Button>
-                        <Button
-                          fullWidth
-                          variant="outlined"
-                          startIcon={<DeleteIcon fontSize="small" />}
-                          onClick={() => handleDeleteRA(ra.id, ra.email)}
-                          sx={{
-                            borderColor: '#fecaca',
-                            color: '#dc2626',
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            fontSize: '0.9rem',
-                            py: 1.2,
-                            '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(220, 38, 38, 0.05)' }
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </Box>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
+              <TableContainer component={Paper} sx={{ bgcolor: '#fff', borderRadius: '12px' }}>
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell>Research Analyst</TableCell>
+                      <TableCell align="center">Assigned Constituencies</TableCell>
+                      <TableCell align="center">Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {myRAs.map((ra) => {
+                      const assignedCount = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id).length;
+                      return (
+                        <TableRow key={ra.id} hover>
+                          <TableCell>{ra.name || ra.email}</TableCell>
+                          <TableCell align="center">{assignedCount}</TableCell>
+                          <TableCell align="center">
+                            <Button
+                              variant="contained"
+                              startIcon={<EditIcon fontSize="small" />}
+                              onClick={() => setSelectedRAForMap(ra)}
+                              sx={{
+                                background: 'linear-gradient(135deg, #0f4c75 0%, #1a5a8e 100%)',
+                                textTransform: 'none',
+                                fontWeight: 600,
+                                fontSize: '0.9rem',
+                                py: 0.5,
+                                px: 1.5,
+                                mr: 1
+                              }}
+                            >
+                              Delegate
+                            </Button>
+                            <Button
+                              variant="outlined"
+                              startIcon={<DeleteIcon fontSize="small" />}
+                              onClick={() => handleDeleteRA(ra.id, ra.email, ra.name)}
+                              sx={{
+                                borderColor: '#fecaca',
+                                color: '#dc2626',
+                                textTransform: 'none',
+                                fontWeight: 600,
+                                fontSize: '0.9rem',
+                                py: 0.5,
+                                px: 1.5,
+                                '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(220, 38, 38, 0.05)' }
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             )}
           </Box>
         )}
@@ -531,6 +530,31 @@ export default function TLDashboard() {
               <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
                 Track assigned constituencies and ECI/Tool round progress for each RA.
               </Typography>
+            </Box>
+
+            {/* Filters */}
+            <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField
+                label="Search RA"
+                variant="outlined"
+                size="small"
+                sx={{ minWidth: 200 }}
+                value={searchRA}
+                onChange={e => setSearchRA(e.target.value)}
+              />
+              <Select
+                displayEmpty
+                value={filterState}
+                onChange={e => setFilterState(e.target.value)}
+                size="small"
+                sx={{ minWidth: 150, background: '#fff' }}
+                renderValue={selected => selected || 'Filter by State'}
+              >
+                <MenuItem value=""><em>All States</em></MenuItem>
+                {stateOptions.map(state => (
+                  <MenuItem key={state} value={state}>{state}</MenuItem>
+                ))}
+              </Select>
             </Box>
 
             {loadingMap || loadingElectionData ? (
@@ -556,7 +580,7 @@ export default function TLDashboard() {
                     {raStatusRows.map((item) => (
                       <React.Fragment key={item.id}>
                         <TableRow hover>
-                          <TableCell>{item.email}</TableCell>
+                          <TableCell>{item.name || item.email}</TableCell>
                           <TableCell align="center">{item.assignedCount}</TableCell>
                           <TableCell align="center">{item.lastUpdatedAt}</TableCell>
                         </TableRow>
@@ -574,14 +598,12 @@ export default function TLDashboard() {
                                       <TableCell align="center">Tool Round</TableCell>
                                       <TableCell align="center">ECI Updated</TableCell>
                                       <TableCell align="center">Tool Updated</TableCell>
-                                      <TableCell align="center">Lag (s)</TableCell>
-                                      <TableCell align="center">Status</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
                                     {item.territories.length === 0 ? (
                                       <TableRow>
-                                        <TableCell colSpan={8} align="center">No assigned constituencies</TableCell>
+                                        <TableCell colSpan={6} align="center">No assigned constituencies</TableCell>
                                       </TableRow>
                                     ) : (
                                       item.territories.map((territory) => (
@@ -591,24 +613,22 @@ export default function TLDashboard() {
                                           <TableCell>{territory.tool_name}</TableCell>
                                           <TableCell align="center">
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                              <Typography sx={{ fontWeight: 700 }}>{territory.eci_round}</Typography>
-                                              <Typography variant="caption" sx={{ fontFamily: 'monospace', ...getLagPalette(territory.eciLagSeconds) }}>
-                                                {typeof territory.eciLagSeconds === 'number' ? `${territory.eciLagSeconds}s` : territory.eciLagSeconds}
+                                              <Typography sx={{ fontWeight: 400, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round}</Typography>
+                                              <Typography variant="caption" sx={{ fontWeight: 400, fontFamily: 'monospace', color: '#64748b', mt: 0.5 }}>
+                                                Lag: {formatLag(territory.eciLagSeconds)}
                                               </Typography>
                                             </Box>
                                           </TableCell>
                                           <TableCell align="center">
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                              <Typography sx={{ fontWeight: 700 }}>{territory.tool_round}</Typography>
-                                              <Typography variant="caption" sx={{ fontFamily: 'monospace', ...getLagPalette(territory.toolLagSeconds) }}>
-                                                {typeof territory.toolLagSeconds === 'number' ? `${territory.toolLagSeconds}s` : territory.toolLagSeconds}
+                                              <Typography sx={{ fontWeight: 400, fontSize: '1rem', color: '#be185d' }}>{territory.tool_round}</Typography>
+                                              <Typography variant="caption" sx={{ fontWeight: 400, fontFamily: 'monospace', color: '#64748b', mt: 0.5 }}>
+                                                Lag: {formatLag(territory.toolLagSeconds)}
                                               </Typography>
                                             </Box>
                                           </TableCell>
                                           <TableCell align="center">{territory.eci_last_updated_at}</TableCell>
                                           <TableCell align="center">{territory.tool_last_updated_at}</TableCell>
-                                          <TableCell align="center">{typeof territory.lagSeconds === 'number' ? `${territory.lagSeconds}s` : territory.lagSeconds}</TableCell>
-                                          <TableCell align="center">{territory.status}</TableCell>
                                         </TableRow>
                                       ))
                                     )}

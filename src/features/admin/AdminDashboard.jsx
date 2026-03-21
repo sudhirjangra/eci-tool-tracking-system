@@ -4,31 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import AdminLiveMonitor from './AdminLiveMonitor';
 import ViewUserMapModal from './ViewUserMapModal';
+import ExpandableRATableRow from './ExpandableRATableRow';
+import { Dialog, DialogTitle, DialogContent, Box, Drawer, Toolbar, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Avatar, Chip, TextField, InputAdornment, Stack, Collapse, TablePagination, AppBar, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import CreateTLModal from './CreateTLModal';
 import AssignMapModal from './AssignMapModal';
-import {
-  Box,
-  Drawer,
-  Toolbar,
-  Typography,
-  Button,
-  IconButton,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Avatar,
-  Chip,
-  TextField,
-  InputAdornment,
-  Stack,
-  Collapse,
-  TablePagination,
-  AppBar,
-} from '@mui/material';
 import {
   Logout as LogoutIcon,
   PersonAdd as PersonAddIcon,
@@ -43,6 +23,7 @@ import {
 } from '@mui/icons-material';
 
 export default function AdminDashboard() {
+  const [raStatusTL, setRAStatusTL] = useState(null);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   const [isTLModalOpen, setIsTLModalOpen] = useState(false);
@@ -270,187 +251,84 @@ export default function AdminDashboard() {
               </Box>
             </Box>
 
-            {/* Team Leaders Grid */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 3 }}>
-              {filteredTLs.map((tl) => {
-                const myRAs = allRoles.filter(r => r.role === 'ra' && r.manager_id === tl.id);
-                const isExpanded = expandedTLs.has(tl.id);
-                
-                return (
-                  <Box
-                    key={tl.id}
-                    sx={{
-                      bgcolor: '#fff',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        boxShadow: '0 8px 24px rgba(15, 76, 117, 0.12)',
-                        borderColor: '#0f4c75'
-                      }
-                    }}
-                  >
-                    {/* Card Header */}
-                    <Box sx={{
-                      background: 'linear-gradient(135deg, #0f4c75 0%, #1a5a8e 100%)',
-                      color: '#fff',
-                      p: 3,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'start'
-                    }}>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography sx={{ fontSize: '0.8rem', opacity: 0.8, mb: 0.5, fontWeight: 600, letterSpacing: '0.5px' }}>TEAM LEADER</Typography>
-                        <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, wordBreak: 'break-word' }}>{tl.email}</Typography>
-                      </Box>
-                      <Chip
-                        label={myRAs.length}
-                        icon={<PersonAddIcon />}
-                        size="small"
-                        sx={{
-                          bgcolor: 'rgba(255,255,255,0.2)',
-                          color: '#fff',
-                          fontWeight: 700,
-                          border: '1px solid rgba(255,255,255,0.3)',
-                          ml: 1,
-                          flexShrink: 0
-                        }}
-                      />
-                    </Box>
-
-                    {/* Card Body */}
-                    <Box sx={{ p: 3 }}>
-                      {/* Actions Row */}
-                      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<VisibilityIcon fontSize="small" />}
-                          onClick={() => setSelectedUserForView(tl)}
-                          sx={{
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            borderColor: '#cbd5e1',
-                            color: '#475569',
-                            flex: 1,
-                            minWidth: '120px',
-                            '&:hover': { borderColor: '#0f4c75', color: '#0f4c75', bgcolor: 'rgba(15, 76, 117, 0.05)' }
-                          }}
-                        >
-                          View Map
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<EditIcon fontSize="small" />}
-                          onClick={() => setSelectedTLForMap(tl)}
-                          sx={{
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            borderColor: '#cbd5e1',
-                            color: '#475569',
-                            flex: 1,
-                            minWidth: '120px',
-                            '&:hover': { borderColor: '#0f4c75', color: '#0f4c75', bgcolor: 'rgba(15, 76, 117, 0.05)' }
-                          }}
-                        >
-                          Assign
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<DeleteIcon fontSize="small" />}
-                          onClick={() => handleDeleteTL(tl.id, tl.email)}
-                          sx={{
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            borderColor: '#fecaca',
-                            color: '#dc2626',
-                            flex: 1,
-                            minWidth: '120px',
-                            '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(220, 38, 38, 0.05)' }
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </Box>
-
-                      {/* Expand/Collapse RAs */}
-                      {myRAs.length > 0 && (
-                        <Button
-                          fullWidth
-                          size="small"
-                          onClick={() => toggleExpandedTL(tl.id)}
-                          sx={{
-                            textTransform: 'none',
-                            fontSize: '0.95rem',
-                            fontWeight: 600,
-                            color: '#00a86b',
-                            py: 1.5,
-                            mb: 2,
-                            border: '1px solid #d1fae5',
-                            bgcolor: '#f0fdf4',
-                            justifyContent: isExpanded ? 'space-between' : 'center',
-                            '&:hover': { bgcolor: '#e6fde9' }
-                          }}
-                          endIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                        >
-                          {isExpanded ? 'Hide' : 'Show'} Research Analysts ({myRAs.length})
-                        </Button>
-                      )}
-
-                      {/* RAs List (Expanded) */}
-                      {isExpanded && myRAs.length > 0 && (
-                        <Box sx={{
-                          pt: 2,
-                          borderTop: '1px solid #e2e8f0',
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                          gap: 2
-                        }}>
-                          {myRAs.map((ra) => (
-                            <Box
-                              key={ra.id}
+            {/* Team Leaders Table */}
+            <TableContainer component={Paper} sx={{ mt: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Team Leader Email</TableCell>
+                    <TableCell>Research Analysts (Emails)</TableCell>
+                    <TableCell align="center">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredTLs.map((tl) => {
+                    const myRAs = allRoles.filter(r => r.role === 'ra' && r.manager_id === tl.id);
+                    return (
+                      <TableRow key={tl.id}>
+                        <TableCell>{tl.email}</TableCell>
+                        <TableCell>
+                          {myRAs.length > 0 ? myRAs.map(ra => ra.email).join(', ') : <span style={{ color: '#94a3b8' }}>No RAs</span>}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Button size="small" variant="outlined" startIcon={<VisibilityIcon fontSize="small" />} onClick={() => setSelectedUserForView(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '90px', mr: 1 }}>
+                            View Map
+                          </Button>
+                          <Button size="small" variant="outlined" startIcon={<EditIcon fontSize="small" />} onClick={() => setSelectedTLForMap(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '90px', mr: 1 }}>
+                            Assign
+                          </Button>
+                          <Button size="small" variant="outlined" startIcon={<DeleteIcon fontSize="small" />} onClick={() => handleDeleteTL(tl.id, tl.email)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#fecaca', color: '#dc2626', minWidth: '90px', mr: 1 }}>
+                            Delete
+                          </Button>
+                          <Button size="small" variant="contained" color="info" onClick={() => setRAStatusTL(tl)} sx={{ textTransform: 'none', fontWeight: 600, minWidth: '90px' }}>
+                            RA Status
+                          </Button>
+                        </TableCell>
+                            {/* RA Status Popup */}
+                            <Dialog open={!!raStatusTL} onClose={() => setRAStatusTL(null)} maxWidth="md" fullWidth
                               sx={{
-                                p: 2,
-                                bgcolor: '#f0fdf4',
-                                border: '1px solid #bbf7d0',
-                                borderRadius: '8px',
-                                '&:hover': { bgcolor: '#e6fde9', borderColor: '#00a86b' }
+                                '& .MuiBackdrop-root': {
+                                  backgroundColor: 'rgba(255,255,255,0.2)',
+                                  backdropFilter: 'blur(6px)'
+                                }
                               }}
-                              onClick={() => setSelectedUserForView(ra)}
-                              role="button"
-                              tabIndex={0}
                             >
-                              <Typography sx={{ fontSize: '0.75rem', color: '#059669', fontWeight: 700, mb: 0.5, letterSpacing: '0.5px' }}>RA</Typography>
-                              <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f5132', wordBreak: 'break-word', cursor: 'pointer' }}>
-                                {ra.email}
-                              </Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                      )}
+                              <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                RA Status for Team Leader
+                                <IconButton onClick={() => setRAStatusTL(null)} size="small"><CloseIcon /></IconButton>
+                              </DialogTitle>
+                              <DialogContent>
+                                {raStatusTL && (
+                                  <Box>
+                                    <Typography sx={{ fontWeight: 600, mb: 2 }}>Team Leader: {raStatusTL.email}</Typography>
+                                    <Table size="small">
+                                      <TableHead>
+                                        <TableRow>
+                                          <TableCell>RA Email</TableCell>
+                                          <TableCell>Role</TableCell>
+                                          <TableCell>Manager</TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {allRoles.filter(r => r.role === 'ra' && r.manager_id === raStatusTL.id).map(ra => (
+                                          <ExpandableRATableRow key={ra.id} ra={ra} managerEmail={raStatusTL.email} />
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                    {allRoles.filter(r => r.role === 'ra' && r.manager_id === raStatusTL.id).length === 0 && (
+                                      <Typography sx={{ color: '#94a3b8', mt: 2 }}>No research analysts assigned yet.</Typography>
+                                    )}
+                                  </Box>
+                                )}
+                              </DialogContent>
+                            </Dialog>
 
-                      {myRAs.length === 0 && (
-                        <Box sx={{ 
-                          p: 3,
-                          textAlign: 'center',
-                          bgcolor: '#f8fafc',
-                          borderRadius: '8px',
-                          border: '1px dashed #cbd5e1'
-                        }}>
-                          <Typography sx={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 500 }}>
-                            No research analysts assigned yet
-                          </Typography>
-                        </Box>
-                      )}
-                    </Box>
-                  </Box>
-                );
-              })}
-            </Box>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
 
             {filteredTLs.length === 0 && (
               <Box sx={{
