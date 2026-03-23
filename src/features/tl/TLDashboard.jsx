@@ -52,6 +52,8 @@ export default function TLDashboard() {
   const [currentUser, setCurrentUser] = useState(null);
   const [searchRA, setSearchRA] = useState('');
   const [filterState, setFilterState] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [sortBy, setSortBy] = useState('name');
 
   // Get current user session on load
   useEffect(() => {
@@ -111,7 +113,7 @@ export default function TLDashboard() {
     if (!myRAs || !myConstituencies) return [];
     const map = Object.fromEntries((electionData || []).map((record) => [record.constituency_id, record]));
 
-    return myRAs
+    let rows = myRAs
       .filter(ra => {
         const matchName = ra.name?.toLowerCase().includes(searchRA.toLowerCase()) || ra.email?.toLowerCase().includes(searchRA.toLowerCase());
         if (searchRA && !matchName) return false;
@@ -153,20 +155,53 @@ export default function TLDashboard() {
           };
         });
 
+        // Calculate RA-level statistics
+        const activeCount = territories.filter(t => t.status === 'Active').length;
+        const warningCount = territories.filter(t => t.status === 'Warning').length;
+        const inactiveCount = territories.filter(t => t.status === 'Inactive').length;
+        const raStatus = territories.length === 0 ? 'No Data' : 
+                        activeCount === territories.length ? 'Active' :
+                        inactiveCount === territories.length ? 'Inactive' : 'Warning';
+
         const lastUpdatedAt = territories
           .flatMap((x) => [x.eci_last_updated_at, x.tool_last_updated_at])
           .map((ts) => (ts && ts !== '-' ? new Date(ts).getTime() : 0))
           .filter(Boolean);
         const latestUpdate = lastUpdatedAt.length ? new Date(Math.max(...lastUpdatedAt)).toLocaleString() : '-';
+        const latestUpdateTime = lastUpdatedAt.length ? Math.max(...lastUpdatedAt) : 0;
 
         return {
           ...ra,
           assignedCount: assigned.length,
           lastUpdatedAt: latestUpdate,
+          lastUpdatedTime: latestUpdateTime,
           territories,
+          raStatus,
+          activeCount,
+          warningCount,
+          inactiveCount,
         };
       });
-  }, [myRAs, myConstituencies, electionData, searchRA, filterState]);
+
+    // Apply status filter
+    if (filterStatus) {
+      rows = rows.filter(ra => ra.raStatus === filterStatus);
+    }
+
+    // Apply sorting
+    if (sortBy === 'name') {
+      rows.sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+    } else if (sortBy === 'lastUpdate') {
+      rows.sort((a, b) => b.lastUpdatedTime - a.lastUpdatedTime);
+    } else if (sortBy === 'assigned') {
+      rows.sort((a, b) => b.assignedCount - a.assignedCount);
+    } else if (sortBy === 'status') {
+      const statusOrder = { 'Active': 0, 'Warning': 1, 'Inactive': 2, 'No Data': 3 };
+      rows.sort((a, b) => statusOrder[a.raStatus] - statusOrder[b.raStatus]);
+    }
+
+    return rows;
+  }, [myRAs, myConstituencies, electionData, searchRA, filterState, filterStatus, sortBy]);
 
   const formatLag = (seconds) => {
     if (seconds === null || seconds === '-' || seconds === undefined) return '--';
@@ -176,10 +211,19 @@ export default function TLDashboard() {
   };
 
   const getLagPalette = (seconds) => {
-    if (seconds === null || seconds === '-' || seconds === undefined) return { color: '#64748b' };
-    if (seconds <= 60) return { color: '#047857' };
-    if (seconds <= 120) return { color: '#92400e' };
-    return { color: '#991b1b' };
+    if (seconds === null || seconds === '-' || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
+    if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
+    if (seconds <= 120) return { bgcolor: '#fef3c7', color: '#92400e' };
+    return { bgcolor: '#fee2e2', color: '#991b1b' };
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'Active': return { bgcolor: '#d1fae5', color: '#047857' };
+      case 'Warning': return { bgcolor: '#fef3c7', color: '#92400e' };
+      case 'Inactive': return { bgcolor: '#fee2e2', color: '#991b1b' };
+      default: return { bgcolor: '#e2e8f0', color: '#64748b' };
+    }
   };
 
   const handleDeleteRA = async (raId, email, name) => {
@@ -533,7 +577,7 @@ export default function TLDashboard() {
             </Box>
 
             {/* Filters */}
-            <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               <TextField
                 label="Search RA"
                 variant="outlined"
@@ -555,6 +599,41 @@ export default function TLDashboard() {
                   <MenuItem key={state} value={state}>{state}</MenuItem>
                 ))}
               </Select>
+              <Select
+                displayEmpty
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+                size="small"
+                sx={{ minWidth: 160, background: '#fff' }}
+                renderValue={selected => selected || 'Filter by Status'}
+              >
+                <MenuItem value=""><em>All Status</em></MenuItem>
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Warning">Warning</MenuItem>
+                <MenuItem value="Inactive">Inactive</MenuItem>
+                <MenuItem value="No Data">No Data</MenuItem>
+              </Select>
+              <Select
+                displayEmpty
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                size="small"
+                sx={{ minWidth: 160, background: '#fff' }}
+                renderValue={selected => {
+                  const labels = {
+                    'name': 'Sort by Name',
+                    'lastUpdate': 'Latest Update',
+                    'assigned': 'Assigned Count',
+                    'status': 'Status'
+                  };
+                  return labels[selected] || 'Sort by Name';
+                }}
+              >
+                <MenuItem value="name">Sort by Name</MenuItem>
+                <MenuItem value="lastUpdate">Latest Update</MenuItem>
+                <MenuItem value="assigned">Assigned Count</MenuItem>
+                <MenuItem value="status">Status</MenuItem>
+              </Select>
             </Box>
 
             {loadingMap || loadingElectionData ? (
@@ -573,6 +652,8 @@ export default function TLDashboard() {
                     <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
                       <TableCell>Research Analyst</TableCell>
                       <TableCell align="center">Assigned Constituencies</TableCell>
+                      <TableCell align="center">Performance Status</TableCell>
+                      <TableCell align="center">Active / Warning / Inactive</TableCell>
                       <TableCell align="center">Latest Update</TableCell>
                     </TableRow>
                   </TableHead>
@@ -582,10 +663,48 @@ export default function TLDashboard() {
                         <TableRow hover>
                           <TableCell>{item.name || item.email}</TableCell>
                           <TableCell align="center">{item.assignedCount}</TableCell>
+                          <TableCell align="center">
+                            <Box sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              px: 2,
+                              py: 1,
+                              borderRadius: '6px',
+                              fontWeight: 700,
+                              fontSize: '0.85rem',
+                              ...getStatusColor(item.raStatus)
+                            }}>
+                              {item.raStatus}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontSize: '0.85rem' }}>
+                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                              {item.activeCount > 0 && (
+                                <Box sx={{ px: 1.5, py: 0.5, bg: '#d1fae5', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#047857' }}>
+                                  ✓ {item.activeCount}
+                                </Box>
+                              )}
+                              {item.warningCount > 0 && (
+                                <Box sx={{ px: 1.5, py: 0.5, bg: '#fef3c7', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#92400e' }}>
+                                  ⚠ {item.warningCount}
+                                </Box>
+                              )}
+                              {item.inactiveCount > 0 && (
+                                <Box sx={{ px: 1.5, py: 0.5, bg: '#fee2e2', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#991b1b' }}>
+                                  ✕ {item.inactiveCount}
+                                </Box>
+                              )}
+                              {item.territories.length === 0 && (
+                                <Box sx={{ px: 1.5, py: 0.5, bg: '#e2e8f0', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
+                                  No Data
+                                </Box>
+                              )}
+                            </Box>
+                          </TableCell>
                           <TableCell align="center">{item.lastUpdatedAt}</TableCell>
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={3} sx={{ p: 0, borderBottom: 'none' }}>
+                          <TableCell colSpan={5} sx={{ p: 0, borderBottom: 'none' }}>
                             <Collapse in={true} timeout="auto" unmountOnExit>                              <Box sx={{ p: 2, bgcolor: '#f9fafb' }}>
                                 <Typography variant="subtitle2" sx={{ mb: 1 }}>Constituency Details</Typography>
                                 <Table size="small">
@@ -596,6 +715,9 @@ export default function TLDashboard() {
                                       <TableCell>Tool Name</TableCell>
                                       <TableCell align="center">ECI Round</TableCell>
                                       <TableCell align="center">Tool Round</TableCell>
+                                      <TableCell align="center">ECI Lag</TableCell>
+                                      <TableCell align="center">Tool Lag</TableCell>
+                                      <TableCell align="center">Status</TableCell>
                                       <TableCell align="center">ECI Updated</TableCell>
                                       <TableCell align="center">Tool Updated</TableCell>
                                     </TableRow>
@@ -603,7 +725,7 @@ export default function TLDashboard() {
                                   <TableBody>
                                     {item.territories.length === 0 ? (
                                       <TableRow>
-                                        <TableCell colSpan={6} align="center">No assigned constituencies</TableCell>
+                                        <TableCell colSpan={10} align="center">No assigned constituencies</TableCell>
                                       </TableRow>
                                     ) : (
                                       item.territories.map((territory) => (
@@ -612,23 +734,57 @@ export default function TLDashboard() {
                                           <TableCell>{territory.eci_name}</TableCell>
                                           <TableCell>{territory.tool_name}</TableCell>
                                           <TableCell align="center">
-                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                              <Typography sx={{ fontWeight: 400, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round}</Typography>
-                                              <Typography variant="caption" sx={{ fontWeight: 400, fontFamily: 'monospace', color: '#64748b', mt: 0.5 }}>
-                                                Lag: {formatLag(territory.eciLagSeconds)}
-                                              </Typography>
+                                            <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round}</Typography>
+                                          </TableCell>
+                                          <TableCell align="center">
+                                            <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{territory.tool_round}</Typography>
+                                          </TableCell>
+                                          <TableCell align="center">
+                                            <Box sx={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              px: 1.5,
+                                              py: 0.75,
+                                              borderRadius: '4px',
+                                              fontWeight: 600,
+                                              fontSize: '0.85rem',
+                                              fontFamily: 'monospace',
+                                              ...getLagPalette(territory.eciLagSeconds)
+                                            }}>
+                                              {formatLag(territory.eciLagSeconds)}
                                             </Box>
                                           </TableCell>
                                           <TableCell align="center">
-                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                              <Typography sx={{ fontWeight: 400, fontSize: '1rem', color: '#be185d' }}>{territory.tool_round}</Typography>
-                                              <Typography variant="caption" sx={{ fontWeight: 400, fontFamily: 'monospace', color: '#64748b', mt: 0.5 }}>
-                                                Lag: {formatLag(territory.toolLagSeconds)}
-                                              </Typography>
+                                            <Box sx={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              px: 1.5,
+                                              py: 0.75,
+                                              borderRadius: '4px',
+                                              fontWeight: 600,
+                                              fontSize: '0.85rem',
+                                              fontFamily: 'monospace',
+                                              ...getLagPalette(territory.toolLagSeconds)
+                                            }}>
+                                              {formatLag(territory.toolLagSeconds)}
                                             </Box>
                                           </TableCell>
-                                          <TableCell align="center">{territory.eci_last_updated_at}</TableCell>
-                                          <TableCell align="center">{territory.tool_last_updated_at}</TableCell>
+                                          <TableCell align="center">
+                                            <Box sx={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              px: 1.5,
+                                              py: 0.5,
+                                              borderRadius: '4px',
+                                              fontWeight: 600,
+                                              fontSize: '0.75rem',
+                                              ...getStatusColor(territory.status)
+                                            }}>
+                                              {territory.status}
+                                            </Box>
+                                          </TableCell>
+                                          <TableCell align="center" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', color: '#64748b' }}>{territory.eci_last_updated_at}</TableCell>
+                                          <TableCell align="center" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', color: '#64748b' }}>{territory.tool_last_updated_at}</TableCell>
                                         </TableRow>
                                       ))
                                     )}
