@@ -7,7 +7,7 @@ function formatTime(ts) {
 }
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
   Box,
@@ -22,8 +22,6 @@ import {
   Chip,
   CircularProgress,
   TextField,
-  Select,
-  MenuItem,
 } from '@mui/material';
 import {
   Logout as LogoutIcon,
@@ -41,6 +39,21 @@ export default function RADashboard() {
       if (!data.user) navigate('/login');
     });
   }, [navigate]);
+
+  // Fetch user name from user_roles
+  const { data: userInfo } = useQuery({
+    queryKey: ['user-info', currentUser?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('name, email')
+        .eq('id', currentUser.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!currentUser?.id,
+  });
 
   // Fetch constituencies, auto-refreshing every 10 seconds for live tracking!
   const { data: assignments, isLoading } = useQuery({
@@ -67,7 +80,7 @@ export default function RADashboard() {
       // Separately fetch election data for these constituencies
       const { data: electionData, error: electionErr } = await supabase
         .from('election_data')
-        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, tool_last_updated_at')
+        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, eci_round_updated_at, tool_round_updated_at')
         .in('constituency_id', constIds);
 
       if (electionErr) throw electionErr;
@@ -98,92 +111,51 @@ export default function RADashboard() {
         .single();
       if (error) throw error;
       if (data?.manager_id) {
-        // Fetch all user emails and find the TL's email
-        const { data: allUsers, error: userErr } = await supabase.rpc('get_all_user_emails');
-        if (userErr) throw userErr;
-        const tlUser = allUsers?.find(u => u.id === data.manager_id);
-        return { email: tlUser?.email || 'N/A', name: tlUser?.name || tlUser?.email || 'N/A' };
+        // Fetch manager's name and email from user_roles
+        const { data: tlData, error: tlErr } = await supabase
+          .from('user_roles')
+          .select('email, name')
+          .eq('id', data.manager_id)
+          .single();
+        if (tlErr) throw tlErr;
+        return { 
+          email: tlData?.email || 'N/A', 
+          name: tlData?.name || tlData?.email || 'N/A' 
+        };
       }
       return null;
     },
     enabled: !!currentUser?.id,
   });
 
+  // Real-time subscription for live updates on election_data
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const channel = supabase.channel('ra-election-updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'election_data' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['ra-assignments', currentUser?.id] });
+      }).subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [queryClient, currentUser?.id]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
   };
 
-  // Search and filter state for filtering assignments list
+  // Search state for filtering assignments list
   const [search, setSearch] = useState('');
-  const [filterState, setFilterState] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [sortBy, setSortBy] = useState('state');
-
-  // Get unique state names for dropdown
-  const stateOptions = useMemo(() => {
-    if (!assignments) return [];
-    const states = assignments.map(a => a.states?.name).filter(Boolean);
-    return Array.from(new Set(states)).sort();
-  }, [assignments]);
 
   const filteredAssignments = useMemo(() => {
     if (!assignments) return [];
-    
-    let filtered = assignments.map(a => {
-      const data = a.election_data?.[0] || { eci_round: 0, tool_round: 0 };
-      const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
-      const toolLastUpdatedMillis = data.tool_last_updated_at ? new Date(data.tool_last_updated_at).getTime() : null;
-      const eciLagSeconds = eciLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - eciLastUpdatedMillis) / 1000)) : null;
-      const toolLagSeconds = toolLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - toolLastUpdatedMillis) / 1000)) : null;
-      const territoryLagSeconds = Math.max(eciLagSeconds || 0, toolLagSeconds || 0);
-      
-      const status = (eciLastUpdatedMillis || toolLastUpdatedMillis) ?
-        (territoryLagSeconds <= 60 ? 'Active' : territoryLagSeconds <= 120 ? 'Warning' : 'Inactive') : 'No Data';
-      
-      return {
-        ...a,
-        eciLagSeconds,
-        toolLagSeconds,
-        territoryLagSeconds,
-        status
-      };
-    });
-
-    // Apply search filter
     const q = (search || '').trim().toLowerCase();
-    if (q) {
-      filtered = filtered.filter(a => {
-        const name = (a.eci_name || '').toLowerCase();
-        const state = (a.states?.name || '').toLowerCase();
-        return name.includes(q) || state.includes(q);
-      });
-    }
-
-    // Apply state filter
-    if (filterState) {
-      filtered = filtered.filter(a => a.states?.name === filterState);
-    }
-
-    // Apply status filter
-    if (filterStatus) {
-      filtered = filtered.filter(a => a.status === filterStatus);
-    }
-
-    // Apply sorting
-    if (sortBy === 'state') {
-      filtered.sort((a, b) => (a.states?.name || '').localeCompare(b.states?.name || ''));
-    } else if (sortBy === 'name') {
-      filtered.sort((a, b) => (a.eci_name || '').localeCompare(b.eci_name || ''));
-    } else if (sortBy === 'status') {
-      const statusOrder = { 'Active': 0, 'Warning': 1, 'Inactive': 2, 'No Data': 3 };
-      filtered.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
-    } else if (sortBy === 'lag') {
-      filtered.sort((a, b) => a.territoryLagSeconds - b.territoryLagSeconds);
-    }
-
-    return filtered;
-  }, [assignments, search, filterState, filterStatus, sortBy]);
+    if (!q) return assignments;
+    return assignments.filter(a => {
+      const name = (a.eci_name || '').toLowerCase();
+      const state = (a.states?.name || '').toLowerCase();
+      return name.includes(q) || state.includes(q);
+    });
+  }, [assignments, search]);
 
   const getSyncStatus = (eci, tool) => {
     const diff = eci - tool;
@@ -193,13 +165,17 @@ export default function RADashboard() {
     return { label: 'In Sync', styles: { backgroundColor: '#d1fae5', color: '#059669' } };
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Active': return { bgcolor: '#d1fae5', color: '#047857' };
-      case 'Warning': return { bgcolor: '#fef3c7', color: '#92400e' };
-      case 'Inactive': return { bgcolor: '#fee2e2', color: '#991b1b' };
-      default: return { bgcolor: '#e2e8f0', color: '#64748b' };
+  const getActivityStatus = (eciRoundUpdatedAt, toolRoundUpdatedAt) => {
+    const eciMs = eciRoundUpdatedAt ? new Date(eciRoundUpdatedAt).getTime() : null;
+    const toolMs = toolRoundUpdatedAt ? new Date(toolRoundUpdatedAt).getTime() : null;
+    if (!eciMs && !toolMs) {
+      return { label: 'Inactive', styles: { backgroundColor: '#fee2e2', color: '#991b1b' } };
     }
+    const latest = Math.max(eciMs || 0, toolMs || 0);
+    if (Date.now() - latest <= 60000) {
+      return { label: 'Active', styles: { backgroundColor: '#d1fae5', color: '#047857' } };
+    }
+    return { label: 'Inactive', styles: { backgroundColor: '#fee2e2', color: '#991b1b' } };
   };
 
   const formatLag = (seconds) => {
@@ -255,9 +231,9 @@ export default function RADashboard() {
         {/* User Info & Logout */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box sx={{ textAlign: 'right', pr: 2, borderRight: '1px solid rgba(255,255,255,0.2)' }}>
-            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600 }}>Research Analyst</Typography>
-            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>{currentUser?.email}</Typography>
-            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8 }}>Reports to: {tlInfo?.name || tlInfo?.email || 'N/A'}</Typography>
+            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600 }}>{userInfo?.name || 'Research Analyst'}</Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>{userInfo?.email || currentUser?.email}</Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8 }}>Reports to: {tlInfo?.name ? `${tlInfo.name} - ${tlInfo.email}` : tlInfo?.email || 'N/A'}</Typography>
           </Box>
           <Button
             onClick={handleLogout}
@@ -327,13 +303,21 @@ export default function RADashboard() {
             bgcolor: '#f8fafc',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
-            flexDirection: 'column',
-            gap: 2
+            justifyContent: 'space-between',
+            alignItems: 'center'
           }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f4c75' }}>
-                Your Assigned Territories ({filteredAssignments?.length || 0})
-              </Typography>
+            <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f4c75' }}>
+              Your Assigned Territories ({assignments?.length || 0})
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <TextField
+                label="Search Constituency or State"
+                variant="outlined"
+                size="small"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                sx={{ minWidth: 220 }}
+              />
               <Box sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -350,64 +334,6 @@ export default function RADashboard() {
                 <InfoIcon sx={{ fontSize: '1rem' }} />
                 Auto-refreshing every 30s
               </Box>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-              <TextField
-                label="Search Constituency or State"
-                variant="outlined"
-                size="small"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                sx={{ minWidth: 220 }}
-              />
-              <Select
-                displayEmpty
-                value={filterState}
-                onChange={e => setFilterState(e.target.value)}
-                size="small"
-                sx={{ minWidth: 150, background: '#fff' }}
-                renderValue={selected => selected || 'Filter by State'}
-              >
-                <MenuItem value=""><em>All States</em></MenuItem>
-                {stateOptions.map(state => (
-                  <MenuItem key={state} value={state}>{state}</MenuItem>
-                ))}
-              </Select>
-              <Select
-                displayEmpty
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                size="small"
-                sx={{ minWidth: 140, background: '#fff' }}
-                renderValue={selected => selected || 'Filter by Status'}
-              >
-                <MenuItem value=""><em>All Status</em></MenuItem>
-                <MenuItem value="Active">Active</MenuItem>
-                <MenuItem value="Warning">Warning</MenuItem>
-                <MenuItem value="Inactive">Inactive</MenuItem>
-                <MenuItem value="No Data">No Data</MenuItem>
-              </Select>
-              <Select
-                displayEmpty
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value)}
-                size="small"
-                sx={{ minWidth: 140, background: '#fff' }}
-                renderValue={selected => {
-                  const labels = {
-                    'state': 'Sort by State',
-                    'name': 'Sort by Name',
-                    'status': 'Sort by Status',
-                    'lag': 'Sort by Lag'
-                  };
-                  return labels[selected] || 'Sort by State';
-                }}
-              >
-                <MenuItem value="state">Sort by State</MenuItem>
-                <MenuItem value="name">Sort by Name</MenuItem>
-                <MenuItem value="status">Sort by Status</MenuItem>
-                <MenuItem value="lag">Sort by Lag</MenuItem>
-              </Select>
             </Box>
           </Box>
 
@@ -465,19 +391,10 @@ export default function RADashboard() {
                       Sync Status
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      Territory Status
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      ECI Lag
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      Tool Lag
+                      Activity
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                       ECI Last Updated
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      Tool Last Updated
                     </TableCell>
                   </TableRow>
                 </TableHead>
@@ -485,9 +402,10 @@ export default function RADashboard() {
                   {filteredAssignments?.map((row) => {
                     const data = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
                     const status = getSyncStatus(data.eci_round, data.tool_round);
-                    const eciLagSeconds = row.eciLagSeconds;
-                    const toolLagSeconds = row.toolLagSeconds;
-                    const territoryStatus = row.status;
+                    const activity = getActivityStatus(data.eci_round_updated_at, data.tool_round_updated_at);
+
+                    const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
+                    const eciLagSeconds = eciLastUpdatedMillis ? Math.floor((Date.now() - eciLastUpdatedMillis) / 1000) : null;
 
                     return (
                       <TableRow
@@ -505,24 +423,31 @@ export default function RADashboard() {
                           {row.states?.name}
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-                          <Chip
-                            label={data.eci_round}
-                            size="small"
-                            sx={{
-                              bgcolor: '#e0e7ff',
-                              color: '#4f46e5'
-                            }}
-                          />
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                            <Chip
+                              label={data.eci_round}
+                              size="small"
+                              sx={{
+                                bgcolor: '#e0e7ff',
+                                color: '#4f46e5'
+                              }}
+                            />
+                            <Typography variant="caption" sx={{ fontWeight: 600, fontFamily: 'monospace', ...getLagPalette(eciLagSeconds) }}>
+                              {formatLag(eciLagSeconds)}
+                            </Typography>
+                          </Box>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-                          <Chip
-                            label={data.tool_round}
-                            size="small"
-                            sx={{
-                              bgcolor: '#fce7f3',
-                              color: '#be185d'
-                            }}
-                          />
+                          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                            <Chip
+                              label={data.tool_round}
+                              size="small"
+                              sx={{
+                                bgcolor: '#fce7f3',
+                                color: '#be185d'
+                              }}
+                            />
+                          </Box>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{
@@ -547,46 +472,13 @@ export default function RADashboard() {
                             borderRadius: '6px',
                             fontWeight: 700,
                             fontSize: '0.85rem',
-                            ...getStatusColor(territoryStatus)
+                            ...activity.styles
                           }}>
-                            {territoryStatus}
+                            {activity.label}
                           </Box>
                         </TableCell>
-                        <TableCell align="center" sx={{ py: 1 }}>
-                          <Box sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            px: 1.5,
-                            py: 0.75,
-                            borderRadius: '4px',
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                            fontFamily: 'monospace',
-                            ...getLagPalette(eciLagSeconds)
-                          }}>
-                            {formatLag(eciLagSeconds)}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center" sx={{ py: 1 }}>
-                          <Box sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            px: 1.5,
-                            py: 0.75,
-                            borderRadius: '4px',
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                            fontFamily: 'monospace',
-                            ...getLagPalette(toolLagSeconds)
-                          }}>
-                            {formatLag(toolLagSeconds)}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center" sx={{ py: 1, color: '#64748b', fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                        <TableCell align="center" sx={{ py: 1, color: '#475569', fontSize: '0.82rem' }}>
                           {formatTime(data.eci_last_updated_at)}
-                        </TableCell>
-                        <TableCell align="center" sx={{ py: 1, color: '#64748b', fontSize: '0.9rem', fontFamily: 'monospace' }}>
-                          {formatTime(data.tool_last_updated_at)}
                         </TableCell>
                       </TableRow>
                     );

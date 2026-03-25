@@ -30,7 +30,6 @@ import {
 import {
   Search as SearchIcon,
   FiberManualRecord as ActiveIcon,
-  Warning as WarningIcon,
   Error as ErrorIcon,
 } from '@mui/icons-material';
 
@@ -82,6 +81,7 @@ export default function AdminLiveMonitor() {
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterTL, setFilterTL] = useState('All');
+  const [filterRA, setFilterRA] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
@@ -104,7 +104,7 @@ export default function AdminLiveMonitor() {
       // Separately fetch all election data
       const { data: electionData, error: electionErr } = await supabase
         .from('election_data')
-        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, tool_last_updated_at');
+        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, eci_round_updated_at, tool_round_updated_at');
 
       if (electionErr) throw electionErr;
 
@@ -121,11 +121,13 @@ export default function AdminLiveMonitor() {
     },
   });
 
-  // 2. Fetch User Emails for Translation
+  // 2. Fetch All User Names and Emails for Translation
   const { data: userEmails } = useQuery({
     queryKey: ['all-user-emails'],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_all_user_emails');
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('id, email, name');
       if (error) throw error;
       return data || [];
     },
@@ -147,64 +149,46 @@ export default function AdminLiveMonitor() {
     return () => supabase.removeChannel(channel);
   }, [queryClient]);
 
-  // 4. Local Timer & Forced Data Refresh
+  // 4. Local Timer & Forced Data Refresh every 30 seconds
   useEffect(() => {
-    let lastUpdate = Date.now();
     const timer = setInterval(() => {
       setNow(Date.now());
-      // If data hasn't updated in 30s, force refresh every 60s
-      if (rawData && rawData.length > 0) {
-        lastUpdate = Date.now();
-      }
-      if (Date.now() - lastUpdate > 30000) {
-        queryClient.invalidateQueries({ queryKey: ['admin-live-feed'] });
-        lastUpdate = Date.now();
-      }
-    }, 1000 * 60); // 60 seconds
+      // Refresh every 30 seconds for sure data from database
+      queryClient.invalidateQueries({ queryKey: ['admin-live-feed'] });
+    }, 1000 * 30); // 30 seconds
     return () => clearInterval(timer);
-  }, [rawData, queryClient]);
+  }, [queryClient]);
 
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterState, filterStatus, filterTL, searchTerm]);
+  }, [filterState, filterStatus, filterTL, filterRA, searchTerm]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
     if (!rawData) return [];
-    const getLagColor = (lagSeconds) => {
-      if (lagSeconds === null) return {bg: '#e2e8f0', fg: '#64748b'};
-      if (lagSeconds <= 60) return {bg: '#d1fae5', fg: '#047857'};
-      if (lagSeconds <= 120) return {bg: '#fef3c7', fg: '#92400e'};
-      return {bg: '#fee2e2', fg: '#991b1b'};
-    };
-
     return rawData.map(row => {
       const data = row.election_data?.[0];
       const eciRound = data?.eci_round || 0;
       const toolRound = data?.tool_round || 0;
       const eciLastUpdatedMillis = data?.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
-      const toolLastUpdatedMillis = data?.tool_last_updated_at ? new Date(data.tool_last_updated_at).getTime() : null;
+      const eciRoundUpdatedMillis = data?.eci_round_updated_at ? new Date(data.eci_round_updated_at).getTime() : null;
+      const toolRoundUpdatedMillis = data?.tool_round_updated_at ? new Date(data.tool_round_updated_at).getTime() : null;
 
       const eciLagSeconds = eciLastUpdatedMillis ? Math.floor((now - eciLastUpdatedMillis) / 1000) : null;
-      const toolLagSeconds = toolLastUpdatedMillis ? Math.floor((now - toolLastUpdatedMillis) / 1000) : null;
+      const toolLagSeconds = toolRoundUpdatedMillis ? Math.floor((now - toolRoundUpdatedMillis) / 1000) : null;
+      const eciRoundLagSeconds = eciRoundUpdatedMillis ? Math.floor((now - eciRoundUpdatedMillis) / 1000) : null;
 
-      let lagSeconds = null;
       let status = 'Not Started';
       let statusColor = 'default';
       let statusIcon = null;
 
-      const latestLag = Math.max(eciLagSeconds || 0, toolLagSeconds || 0);
-      if (eciLastUpdatedMillis || toolLastUpdatedMillis) {
-        lagSeconds = latestLag;
-        if (lagSeconds <= 60) {
+      const latestLag = Math.max(eciRoundLagSeconds || 0, toolLagSeconds || 0);
+      if (eciRoundUpdatedMillis || toolRoundUpdatedMillis) {
+        if (latestLag <= 60) {
           status = 'Active';
           statusColor = 'success';
           statusIcon = <ActiveIcon sx={{ fontSize: '0.8rem', animation: 'pulse 2s infinite' }} />;
-        } else if (lagSeconds <= 120) {
-          status = 'Warning';
-          statusColor = 'warning';
-          statusIcon = <WarningIcon sx={{ fontSize: '0.8rem' }} />;
         } else {
           status = 'Inactive';
           statusColor = 'error';
@@ -216,14 +200,22 @@ export default function AdminLiveMonitor() {
       const tlName = emailMap[row.assigned_tl_id]?.name || 'Unassigned';
       const raEmail = emailMap[row.assigned_ra_id]?.email || 'Unassigned';
       const raName = emailMap[row.assigned_ra_id]?.name || 'Unassigned';
+      const syncDelta = eciRound - toolRound;
+      const syncStatus = eciRound === 0 && toolRound === 0
+        ? 'Not Started'
+        : syncDelta === 0
+          ? 'In Sync'
+          : syncDelta > 0
+            ? `ECI +${syncDelta}`
+            : `Tool +${Math.abs(syncDelta)}`;
 
       return {
         ...row,
         eciRound,
         toolRound,
+        eciLastUpdatedAt: data?.eci_last_updated_at || null,
         eciLagSeconds,
         toolLagSeconds,
-        lagSeconds,
         status,
         statusColor,
         statusIcon,
@@ -231,6 +223,7 @@ export default function AdminLiveMonitor() {
         tlName,
         raEmail,
         raName,
+        syncStatus,
       };
     });
   }, [rawData, now, emailMap]);
@@ -241,7 +234,8 @@ export default function AdminLiveMonitor() {
     const matchesState = filterState === 'All' || row.states?.name === filterState;
     const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
     const matchesTL = filterTL === 'All' || row.assigned_tl_id === filterTL;
-    return matchesSearch && matchesState && matchesStatus && matchesTL;
+    const matchesRA = filterRA === 'All' || row.assigned_ra_id === filterRA;
+    return matchesSearch && matchesState && matchesStatus && matchesTL && matchesRA;
   });
 
   const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
@@ -251,9 +245,30 @@ export default function AdminLiveMonitor() {
     if (!rawData) return [];
     const tlMap = new Map();
     rawData.forEach(r => {
-      if (r.assigned_tl_id) tlMap.set(r.assigned_tl_id, emailMap[r.assigned_tl_id]?.email || 'Unknown TL');
+      if (r.assigned_tl_id) {
+        const mapped = emailMap[r.assigned_tl_id];
+        tlMap.set(
+          r.assigned_tl_id,
+          mapped ? `${mapped.name || mapped.email} - ${mapped.email}` : r.assigned_tl_id
+        );
+      }
     });
     return Array.from(tlMap.entries());
+  }, [rawData, emailMap]);
+
+  const uniqueRAs = useMemo(() => {
+    if (!rawData) return [];
+    const raMap = new Map();
+    rawData.forEach(r => {
+      if (r.assigned_ra_id) {
+        const mapped = emailMap[r.assigned_ra_id];
+        raMap.set(
+          r.assigned_ra_id,
+          mapped ? `${mapped.name || mapped.email} - ${mapped.email}` : r.assigned_ra_id
+        );
+      }
+    });
+    return Array.from(raMap.entries());
   }, [rawData, emailMap]);
 
   // Pagination for table
@@ -284,81 +299,22 @@ export default function AdminLiveMonitor() {
     return { bgcolor: '#fee2e2', color: '#991b1b' };
   };
 
-  const stats = {
-    active: processedData.filter(d => d.status === 'Active').length,
-    warning: processedData.filter(d => d.status === 'Warning').length,
-    inactive: processedData.filter(d => d.status === 'Inactive').length,
-    total: processedData.length,
+  const formatTimestamp = (ts) => {
+    if (!ts) return '--';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '--';
+    return d.toLocaleString();
+  };
+
+  const getSyncChipStyles = (syncStatus) => {
+    if (syncStatus === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
+    if (syncStatus === 'Not Started') return { backgroundColor: '#e2e8f0', color: '#64748b' };
+    if (syncStatus.startsWith('ECI +')) return { backgroundColor: '#fee2e2', color: '#991b1b' };
+    return { backgroundColor: '#fef3c7', color: '#92400e' };
   };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', bgcolor: '#f0f4f8', margin: 0, padding: 0 }}>
-      {/* User Info Section removed as requested */}
-      {/* Top Section - Key Stats */}
-      <Box sx={{ p: 0.5, bgcolor: '#fff', borderBottom: '1px solid #e2e8f0' }}>
-        <Box sx={{ display: 'flex', gap: 1.25, justifyContent: 'space-between' }}>
-          {/* Active Stat */}
-          <Box sx={{
-            p: 0.75,
-            px: 1.5,
-            bgcolor: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)',
-            border: '1px solid #86efac',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.1)',
-            flex: 1,
-            textAlign: 'center'
-          }}>
-            <Typography sx={{ fontSize: '0.65rem', color: '#059669', fontWeight: 600, letterSpacing: '0.5px', mb: 0.15 }}>ACTIVE</Typography>
-            <Typography sx={{ fontSize: '1.3rem', fontWeight: 800, color: '#059669' }}>{stats.active}</Typography>
-          </Box>
-
-          {/* Warning Stat */}
-          <Box sx={{
-            p: 0.75,
-            px: 1.5,
-            bgcolor: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-            border: '1px solid #fcd34d',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(245, 158, 11, 0.1)',
-            flex: 1,
-            textAlign: 'center'
-          }}>
-            <Typography sx={{ fontSize: '0.65rem', color: '#b45309', fontWeight: 600, letterSpacing: '0.5px', mb: 0.15 }}>WARNING</Typography>
-            <Typography sx={{ fontSize: '1.3rem', fontWeight: 800, color: '#b45309' }}>{stats.warning}</Typography>
-          </Box>
-
-          {/* Inactive Stat */}
-          <Box sx={{
-            p: 0.75,
-            px: 1.5,
-            bgcolor: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-            border: '1px solid #fca5a5',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(220, 38, 38, 0.1)',
-            flex: 1,
-            textAlign: 'center'
-          }}>
-            <Typography sx={{ fontSize: '0.65rem', color: '#991b1b', fontWeight: 600, letterSpacing: '0.5px', mb: 0.15 }}>INACTIVE</Typography>
-            <Typography sx={{ fontSize: '1.3rem', fontWeight: 800, color: '#991b1b' }}>{stats.inactive}</Typography>
-          </Box>
-
-          {/* Total Stat */}
-          <Box sx={{
-            p: 0.75,
-            px: 1.5,
-            background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-            border: '1px solid #93c5fd',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)',
-            flex: 1,
-            textAlign: 'center'
-          }}>
-            <Typography sx={{ fontSize: '0.65rem', color: '#1e40af', fontWeight: 600, letterSpacing: '0.5px', mb: 0.15 }}>TOTAL</Typography>
-            <Typography sx={{ fontSize: '1.3rem', fontWeight: 800, color: '#1e40af' }}>{stats.total}</Typography>
-          </Box>
-        </Box>
-      </Box>
-
       {/* Middle Section - Filters */}
       <Box sx={{ p: 0.5, px: 1, bgcolor: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 1.25, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <TextField
@@ -412,9 +368,8 @@ export default function AdminLiveMonitor() {
             }}
           >
             <MenuItem value="All">All Statuses</MenuItem>
-            <MenuItem value="Active">Active (&lt;15s)</MenuItem>
-            <MenuItem value="Warning">Warning (15-60s)</MenuItem>
-            <MenuItem value="Inactive">Inactive (&gt;60s)</MenuItem>
+            <MenuItem value="Active">Active (&lt;1m)</MenuItem>
+            <MenuItem value="Inactive">Inactive (&gt;1m)</MenuItem>
           </Select>
         </FormControl>
 
@@ -436,10 +391,28 @@ export default function AdminLiveMonitor() {
           </Select>
         </FormControl>
 
+        <FormControl sx={{ minWidth: 170 }} size="small">
+          <InputLabel>Research Analyst</InputLabel>
+          <Select
+            value={filterRA}
+            label="Research Analyst"
+            onChange={(e) => setFilterRA(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Research Analysts</MenuItem>
+            {uniqueRAs.map(([id, label]) => (
+              <MenuItem key={id} value={id}>{label}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
         <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
           <Box sx={{ px: 1.25, py: 0.5, bgcolor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
             <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: '#059669' }}>
-              Showing {filteredData.length}/{stats.total}
+              Showing {filteredData.length}/{processedData.length}
             </Typography>
           </Box>
         </Box>
@@ -471,6 +444,8 @@ export default function AdminLiveMonitor() {
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>State</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Tool Round</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Sync Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Last Updated</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Team Lead</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Research Analyst</TableCell>
                   </TableRow>
@@ -488,9 +463,9 @@ export default function AdminLiveMonitor() {
                           borderRadius: '6px',
                           fontWeight: 700,
                           fontSize: '0.82rem',
-                          backgroundColor: row.status === 'Active' ? '#d1fae5' : row.status === 'Warning' ? '#fef3c7' : '#fee2e2',
-                          color: row.status === 'Active' ? '#059669' : row.status === 'Warning' ? '#92400e' : '#991b1b',
-                          border: row.status === 'Active' ? '1px solid #6ee7b7' : row.status === 'Warning' ? '1px solid #fcd34d' : '1px solid #fecaca'
+                          backgroundColor: row.status === 'Active' ? '#d1fae5' : '#fee2e2',
+                          color: row.status === 'Active' ? '#059669' : '#991b1b',
+                          border: row.status === 'Active' ? '1px solid #6ee7b7' : '1px solid #fecaca'
                         }}>
                           {row.statusIcon}
                           {row.status}
@@ -531,7 +506,7 @@ export default function AdminLiveMonitor() {
                         </Box>
                       </TableCell>
                       <TableCell align="center" sx={{ py: 1 }}>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                           <Chip
                             label={row.toolRound}
                             size="small"
@@ -542,17 +517,26 @@ export default function AdminLiveMonitor() {
                               fontWeight: 700
                             }}
                           />
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              fontWeight: 600,
-                              fontFamily: 'monospace',
-                              ...getLagPalette(row.toolLagSeconds)
-                            }}
-                          >
-                            {formatLag(row.toolLagSeconds)}
-                          </Typography>
                         </Box>
+                      </TableCell>
+                      <TableCell align="center" sx={{ py: 1 }}>
+                        <Box sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          px: 1.5,
+                          py: 0.6,
+                          borderRadius: '6px',
+                          fontWeight: 700,
+                          fontSize: '0.8rem',
+                          ...getSyncChipStyles(row.syncStatus)
+                        }}>
+                          {row.syncStatus}
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ py: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#334155', fontSize: '0.82rem' }}>
+                          {formatTimestamp(row.eciLastUpdatedAt)}
+                        </Typography>
                       </TableCell>
                       {/* <TableCell align="right" sx={{ py: 2 }}>
                         <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#475569' }}>
@@ -569,7 +553,7 @@ export default function AdminLiveMonitor() {
                           <Chip label="—" size="small" variant="outlined" />
                         ) : (
                           <Typography variant="body2" sx={{ color: '#1e293b', fontSize: '0.85rem' }}>
-                            {row.tlEmail}
+                            {row.tlName !== 'Unassigned' ? `${row.tlName} - ${row.tlEmail}` : row.tlEmail}
                           </Typography>
                         )}
                       </TableCell>
@@ -578,7 +562,7 @@ export default function AdminLiveMonitor() {
                           <Chip label="—" size="small" variant="outlined" />
                         ) : (
                           <Typography variant="body2" sx={{ color: '#1e293b', fontSize: '0.85rem' }}>
-                            {row.raEmail}
+                            {row.raName !== 'Unassigned' ? `${row.raName} - ${row.raEmail}` : row.raEmail}
                           </Typography>
                         )}
                       </TableCell>

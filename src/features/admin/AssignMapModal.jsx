@@ -213,7 +213,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
             {/* User Info */}
             <Box sx={{ mb: 2 }}>
               <Chip
-                label={`Team Leader: ${tl.email}`}
+                label={`Team Leader: ${tl.name ? `${tl.name} (${tl.email})` : tl.email}`}
                 color="primary"
                 variant="outlined"
                 size="small"

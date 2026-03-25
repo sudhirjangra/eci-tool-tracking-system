@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
@@ -8,6 +8,7 @@ import ExpandableRATableRow from './ExpandableRATableRow';
 import { Dialog, DialogTitle, DialogContent, Box, Drawer, Toolbar, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Avatar, Chip, TextField, InputAdornment, Stack, Collapse, TablePagination, AppBar, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import CreateTLModal from './CreateTLModal';
+import EditTLModal from './EditTLModal';
 import AssignMapModal from './AssignMapModal';
 import {
   Logout as LogoutIcon,
@@ -27,25 +28,33 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
   const [isTLModalOpen, setIsTLModalOpen] = useState(false);
+  const [selectedTLForEdit, setSelectedTLForEdit] = useState(null);
   const [selectedTLForMap, setSelectedTLForMap] = useState(null);
   const [selectedUserForView, setSelectedUserForView] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedTLs, setExpandedTLs] = useState(new Set());
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Fetch ALL roles - optimized
   const { data: allRoles } = useQuery({
     queryKey: ['all-user-roles'],
     queryFn: async () => {
-      const { data: roles, error: rolesErr } = await supabase.from('user_roles').select('id, role, manager_id');
-      const { data: emails, error: emailErr } = await supabase.rpc('get_all_user_emails');
-      if (rolesErr || emailErr) throw rolesErr || emailErr;
+      const { data: roles, error: rolesErr } = await supabase
+        .from('user_roles')
+        .select('id, role, manager_id, email, name');
+      if (rolesErr) throw rolesErr;
       
-      const emailMap = {};
-      emails.forEach(e => { emailMap[e.id] = e.email; });
-      
-      return roles.map(role => ({
-        ...role,
-        email: emailMap[role.id] || 'Unknown'
+      return (roles || []).map(r => ({
+        id: r.id,
+        email: r.email,
+        name: r.name || r.email,
+        role: r.role,
+        manager_id: r.manager_id
       }));
     },
     staleTime: 60000,
@@ -61,6 +70,61 @@ export default function AdminDashboard() {
     },
     staleTime: 60000,
   });
+
+  const { data: liveStatsData } = useQuery({
+    queryKey: ['admin-live-nav-stats'],
+    queryFn: async () => {
+      const { data: constData, error: constErr } = await supabase
+        .from('constituencies')
+        .select('id');
+      if (constErr) throw constErr;
+
+      const { data: electionData, error: electionErr } = await supabase
+        .from('election_data')
+        .select('constituency_id, eci_round_updated_at, tool_round_updated_at');
+      if (electionErr) throw electionErr;
+
+      const map = {};
+      (electionData || []).forEach((r) => {
+        map[r.constituency_id] = r;
+      });
+
+      return (constData || []).map((c) => ({
+        id: c.id,
+        election: map[c.id] || null,
+      }));
+    },
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const navStats = useMemo(() => {
+    const rows = liveStatsData || [];
+    let active = 0;
+    let inactive = 0;
+
+    rows.forEach((row) => {
+      const eciTs = row.election?.eci_round_updated_at ? new Date(row.election.eci_round_updated_at).getTime() : null;
+      const toolTs = row.election?.tool_round_updated_at ? new Date(row.election.tool_round_updated_at).getTime() : null;
+      if (!eciTs && !toolTs) {
+        inactive += 1;
+        return;
+      }
+
+      const latest = Math.max(eciTs || 0, toolTs || 0);
+      if (latest && now - latest <= 60000) {
+        active += 1;
+      } else {
+        inactive += 1;
+      }
+    });
+
+    return {
+      active,
+      inactive,
+      total: rows.length,
+    };
+  }, [liveStatsData, now]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -85,9 +149,11 @@ export default function AdminDashboard() {
   };
 
   const teamLeaderList = allRoles?.filter(r => r.role === 'tl') || [];
-  const filteredTLs = teamLeaderList.filter(tl =>
-    tl.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTLs = teamLeaderList.filter(tl => {
+    const searchTermLower = searchTerm.toLowerCase();
+    return (tl.email?.toLowerCase().includes(searchTermLower) || 
+            tl.name?.toLowerCase().includes(searchTermLower));
+  });
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>
@@ -152,7 +218,8 @@ export default function AdminDashboard() {
         borderBottom: '1px solid #e2e8f0',
         display: 'flex',
         gap: 0,
-        px: 1.5
+        px: 1.5,
+        alignItems: 'center'
       }}>
         <Button
           onClick={() => setActiveTab(0)}
@@ -184,6 +251,21 @@ export default function AdminDashboard() {
         >
           Team Administration
         </Button>
+
+        <Box sx={{ ml: 'auto', display: 'flex', gap: 1, pr: 0.5 }}>
+          <Box sx={{ px: 1.4, py: 0.7, bgcolor: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7', borderRadius: '8px', minWidth: 80, textAlign: 'center' }}>
+            <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.3px' }}>ACTIVE</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>{navStats.active}</Typography>
+          </Box>
+          <Box sx={{ px: 1.4, py: 0.7, bgcolor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', minWidth: 80, textAlign: 'center' }}>
+            <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.3px' }}>INACTIVE</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>{navStats.inactive}</Typography>
+          </Box>
+          <Box sx={{ px: 1.4, py: 0.7, bgcolor: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd', borderRadius: '8px', minWidth: 80, textAlign: 'center' }}>
+            <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.3px' }}>TOTAL</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>{navStats.total}</Typography>
+          </Box>
+        </Box>
       </Box>
 
       {/* Main Content Area */}
@@ -256,8 +338,8 @@ export default function AdminDashboard() {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Team Leader Email</TableCell>
-                    <TableCell>Research Analysts (Emails)</TableCell>
+                    <TableCell>Team Leader</TableCell>
+                    <TableCell>Research Analysts</TableCell>
                     <TableCell align="center">Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -266,21 +348,24 @@ export default function AdminDashboard() {
                     const myRAs = allRoles.filter(r => r.role === 'ra' && r.manager_id === tl.id);
                     return (
                       <TableRow key={tl.id}>
-                        <TableCell>{tl.email}</TableCell>
+                        <TableCell>{tl.name ? `${tl.name} (${tl.email})` : tl.email}</TableCell>
                         <TableCell>
-                          {myRAs.length > 0 ? myRAs.map(ra => ra.email).join(', ') : <span style={{ color: '#94a3b8' }}>No RAs</span>}
+                          {myRAs.length > 0 ? myRAs.map(ra => ra.name ? `${ra.name} (${ra.email})` : ra.email).join(', ') : <span style={{ color: '#94a3b8' }}>No RAs</span>}
                         </TableCell>
                         <TableCell align="center">
-                          <Button size="small" variant="outlined" startIcon={<VisibilityIcon fontSize="small" />} onClick={() => setSelectedUserForView(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '90px', mr: 1 }}>
-                            View Map
+                          <Button size="small" variant="outlined" startIcon={<EditIcon fontSize="small" />} onClick={() => setSelectedTLForEdit(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '80px', mr: 0.5 }}>
+                            Edit
                           </Button>
-                          <Button size="small" variant="outlined" startIcon={<EditIcon fontSize="small" />} onClick={() => setSelectedTLForMap(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '90px', mr: 1 }}>
+                          <Button size="small" variant="outlined" startIcon={<VisibilityIcon fontSize="small" />} onClick={() => setSelectedUserForView(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '80px', mr: 0.5 }}>
+                            Map
+                          </Button>
+                          <Button size="small" variant="outlined" startIcon={<EditIcon fontSize="small" />} onClick={() => setSelectedTLForMap(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '80px', mr: 0.5 }}>
                             Assign
                           </Button>
-                          <Button size="small" variant="outlined" startIcon={<DeleteIcon fontSize="small" />} onClick={() => handleDeleteTL(tl.id, tl.email)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#fecaca', color: '#dc2626', minWidth: '90px', mr: 1 }}>
+                          <Button size="small" variant="outlined" startIcon={<DeleteIcon fontSize="small" />} onClick={() => handleDeleteTL(tl.id, tl.email)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#fecaca', color: '#dc2626', minWidth: '80px', mr: 0.5 }}>
                             Delete
                           </Button>
-                          <Button size="small" variant="contained" color="info" onClick={() => setRAStatusTL(tl)} sx={{ textTransform: 'none', fontWeight: 600, minWidth: '90px' }}>
+                          <Button size="small" variant="contained" color="info" onClick={() => setRAStatusTL(tl)} sx={{ textTransform: 'none', fontWeight: 600, minWidth: '80px' }}>
                             RA Status
                           </Button>
                         </TableCell>
@@ -300,18 +385,18 @@ export default function AdminDashboard() {
                               <DialogContent>
                                 {raStatusTL && (
                                   <Box>
-                                    <Typography sx={{ fontWeight: 600, mb: 2 }}>Team Leader: {raStatusTL.email}</Typography>
+                                    <Typography sx={{ fontWeight: 600, mb: 2 }}>Team Leader: {raStatusTL.name ? `${raStatusTL.name} (${raStatusTL.email})` : raStatusTL.email}</Typography>
                                     <Table size="small">
                                       <TableHead>
                                         <TableRow>
-                                          <TableCell>RA Email</TableCell>
+                                          <TableCell>Research Analyst</TableCell>
                                           <TableCell>Role</TableCell>
                                           <TableCell>Manager</TableCell>
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
                                         {allRoles.filter(r => r.role === 'ra' && r.manager_id === raStatusTL.id).map(ra => (
-                                          <ExpandableRATableRow key={ra.id} ra={ra} managerEmail={raStatusTL.email} />
+                                          <ExpandableRATableRow key={ra.id} ra={ra} managerEmail={raStatusTL.name ? `${raStatusTL.name} (${raStatusTL.email})` : raStatusTL.email} />
                                         ))}
                                       </TableBody>
                                     </Table>
@@ -353,6 +438,7 @@ export default function AdminDashboard() {
       {/* Modals */}
       <ViewUserMapModal isOpen={!!selectedUserForView} onClose={() => setSelectedUserForView(null)} user={selectedUserForView} />
       <CreateTLModal isOpen={isTLModalOpen} onClose={() => setIsTLModalOpen(false)} onSuccess={() => { setIsTLModalOpen(false); refetchTLs(); }} />
+      <EditTLModal isOpen={!!selectedTLForEdit} onClose={() => setSelectedTLForEdit(null)} tl={selectedTLForEdit} onSuccess={() => { setSelectedTLForEdit(null); refetchTLs(); }} />
       <AssignMapModal isOpen={!!selectedTLForMap} onClose={() => setSelectedTLForMap(null)} tl={selectedTLForMap} onSuccess={() => setSelectedTLForMap(null)} />
     </Box>
   );

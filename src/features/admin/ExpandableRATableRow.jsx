@@ -30,7 +30,7 @@ export default function ExpandableRATableRow({ ra, managerEmail }) {
           <IconButton size="small" onClick={() => setOpen(o => !o)}>
             {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
-          {ra.email}
+          {ra.name || ra.email}
         </TableCell>
         <TableCell>{ra.role}</TableCell>
         <TableCell>{managerEmail}</TableCell>
@@ -40,6 +40,8 @@ export default function ExpandableRATableRow({ ra, managerEmail }) {
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ p: 2, bgcolor: '#f8fafc' }}>
               <Typography variant="body2" sx={{ color: '#64748b', mb: 1 }}>RA ID: {ra.id}</Typography>
+              <Typography variant="body2" sx={{ color: '#64748b', mb: 1 }}>Email: {ra.email}</Typography>
+              {ra.name && <Typography variant="body2" sx={{ color: '#64748b', mb: 1 }}>Name: {ra.name}</Typography>}
               <Typography variant="subtitle2" sx={{ color: '#0f4c75', mb: 1 }}>Assigned Constituencies:</Typography>
               {loading ? (
                 <CircularProgress size={20} />
