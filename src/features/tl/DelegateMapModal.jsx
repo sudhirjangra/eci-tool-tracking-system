@@ -51,19 +51,25 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
   });
 
   const { data: userEmails } = useQuery({
-    queryKey: ['all-user-emails'],
+    queryKey: ['all-user-emails-delegate'],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_all_user_emails');
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('id, email, name');
       if (error) throw error;
       return data || [];
     },
     enabled: isOpen,
   });
 
-  const raEmailMap = useMemo(() => {
+  const raInfoMap = useMemo(() => {
     const map = {};
     userEmails?.forEach((u) => {
-      map[u.id] = u.email;
+      map[u.id] = {
+        name: u.name || u.email,
+        email: u.email,
+        display: u.name ? `${u.name} (${u.email})` : u.email
+      };
     });
     return map;
   }, [userEmails]);
@@ -242,7 +248,7 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
             {/* User Info */}
             <Box sx={{ mb: 2 }}>
               <Chip
-                label={`Research Analyst: ${ra.email}`}
+                label={`Research Analyst: ${ra.name ? `${ra.name} (${ra.email})` : ra.email}`}
                 sx={{
                   backgroundColor: '#e0f5f1',
                   color: '#00a86b',
@@ -365,8 +371,8 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                           <TableCell>
                             {c.assigned_ra_id
                               ? c.assigned_ra_id === ra.id
-                                ? `${ra.email} (Current RA)`
-                                : raEmailMap[c.assigned_ra_id] || c.assigned_ra_id
+                                ? `${ra.name ? `${ra.name} (${ra.email})` : ra.email} (Current RA)`
+                                : raInfoMap[c.assigned_ra_id]?.display || c.assigned_ra_id
                               : 'Unassigned'}
                           </TableCell>
                         </TableRow>

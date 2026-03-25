@@ -27,6 +27,7 @@ import {
 
 export default function CreateTLModal({ isOpen, onClose, onSuccess }) {
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,8 +40,8 @@ export default function CreateTLModal({ isOpen, onClose, onSuccess }) {
     setError(null);
     setSuccess(false);
 
-    if (!email.trim() || !password.trim()) {
-      setError('Email and password are required.');
+    if (!email.trim() || !password.trim() || !name.trim()) {
+      setError('Email, name, and password are required.');
       setLoading(false);
       return;
     }
@@ -60,6 +61,8 @@ export default function CreateTLModal({ isOpen, onClose, onSuccess }) {
       const { error: roleError } = await supabase.from('user_roles').insert({
         id: authData.user.id,
         role: 'tl',
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
       });
 
       if (roleError) {
@@ -70,6 +73,7 @@ export default function CreateTLModal({ isOpen, onClose, onSuccess }) {
 
       setSuccess(true);
       setEmail('');
+      setName('');
       setPassword('');
       if (onSuccess) onSuccess();
 
@@ -102,6 +106,18 @@ export default function CreateTLModal({ isOpen, onClose, onSuccess }) {
         <Stack spacing={2} mt={1}>
           {error && <Alert severity="error">{error}</Alert>}
           {success && <Alert severity="success">Team Leader created successfully.</Alert>}
+
+          <TextField
+            label="Full Name"
+            type="text"
+            required
+            fullWidth
+            size="small"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={loading}
+            placeholder="John Doe"
+          />
 
           <TextField
             label="Email Address"

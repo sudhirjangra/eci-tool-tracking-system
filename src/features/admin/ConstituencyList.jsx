@@ -46,7 +46,7 @@ export default function ConstituencyList() {
       // Separately fetch all election data
       const { data: electionData, error: electionErr } = await supabase
         .from('election_data')
-        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, tool_last_updated_at');
+        .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at');
 
       if (electionErr) throw electionErr;
 

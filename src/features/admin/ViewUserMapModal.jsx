@@ -83,8 +83,8 @@ export default function ViewUserMapModal({ isOpen, onClose, user }) {
                 color: isTeamLead ? '#0f4c75' : '#00a86b',
               }}
             />
-            <Typography variant="body2" sx={{ color: '#666' }}>
-              {user.email}
+            <Typography variant="body2" sx={{ color: '#666', fontWeight: 500 }}>
+              {user.name ? `${user.name} (${user.email})` : user.email}
             </Typography>
           </Box>
         </Box>
