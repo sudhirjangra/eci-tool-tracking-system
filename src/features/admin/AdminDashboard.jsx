@@ -112,11 +112,7 @@ export default function AdminDashboard() {
       }
 
       const latest = Math.max(eciTs || 0, toolTs || 0);
-<<<<<<< HEAD
       if (latest && now - latest <= 100000) {
-=======
-      if (latest && now - latest <= 60000) {
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
         active += 1;
       } else {
         inactive += 1;
