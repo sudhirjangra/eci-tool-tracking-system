@@ -74,11 +74,7 @@ export default function RADashboard() {
       // Separately fetch election data for these constituencies
       const { data: electionData, error: electionErr } = await supabase
         .from('election_data')
-<<<<<<< HEAD
         .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at')
-=======
-        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, eci_round_updated_at, tool_round_updated_at')
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
         .in('constituency_id', constIds);
 
       if (electionErr) throw electionErr;
@@ -166,35 +162,10 @@ export default function RADashboard() {
   const getActivityStatus = (eciRoundUpdatedAt, toolRoundUpdatedAt) => {
     const eciMs = eciRoundUpdatedAt ? new Date(eciRoundUpdatedAt).getTime() : null;
     const toolMs = toolRoundUpdatedAt ? new Date(toolRoundUpdatedAt).getTime() : null;
-<<<<<<< HEAD
     return {
       eciActive: !!eciMs && (Date.now() - eciMs <= ACTIVITY_THRESHOLD_MS),
       toolActive: !!toolMs && (Date.now() - toolMs <= ACTIVITY_THRESHOLD_MS),
     };
-=======
-    if (!eciMs && !toolMs) {
-      return { label: 'Inactive', styles: { backgroundColor: '#fee2e2', color: '#991b1b' } };
-    }
-    const latest = Math.max(eciMs || 0, toolMs || 0);
-    if (Date.now() - latest <= 60000) {
-      return { label: 'Active', styles: { backgroundColor: '#d1fae5', color: '#047857' } };
-    }
-    return { label: 'Inactive', styles: { backgroundColor: '#fee2e2', color: '#991b1b' } };
-  };
-
-  const formatLag = (seconds) => {
-    if (seconds === null || seconds === undefined) return '--';
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
-  };
-
-  const getLagPalette = (seconds) => {
-    if (seconds === null || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
-    if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
-    if (seconds <= 120) return { bgcolor: '#fef3c7', color: '#92400e' };
-    return { bgcolor: '#fee2e2', color: '#991b1b' };
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
   };
 
   return (
@@ -396,14 +367,11 @@ export default function RADashboard() {
                       Sync Status
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-<<<<<<< HEAD
                       ECI / Tool
-=======
                       Activity
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                       ECI Last Updated
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                     </TableCell>
                   </TableRow>
                 </TableHead>
@@ -412,12 +380,7 @@ export default function RADashboard() {
                     const data = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
                     const status = getSyncStatus(data.eci_round, data.tool_round);
                     const activity = getActivityStatus(data.eci_round_updated_at, data.tool_round_updated_at);
-<<<<<<< HEAD
-=======
 
-                    const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
-                    const eciLagSeconds = eciLastUpdatedMillis ? Math.floor((Date.now() - eciLastUpdatedMillis) / 1000) : null;
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 
                     return (
                       <TableRow
@@ -435,11 +398,7 @@ export default function RADashboard() {
                           {row.states?.name}
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-<<<<<<< HEAD
-                          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-=======
                           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                             <Chip
                               label={data.eci_round}
                               size="small"
@@ -448,12 +407,6 @@ export default function RADashboard() {
                                 color: '#4f46e5'
                               }}
                             />
-<<<<<<< HEAD
-=======
-                            <Typography variant="caption" sx={{ fontWeight: 600, fontFamily: 'monospace', ...getLagPalette(eciLagSeconds) }}>
-                              {formatLag(eciLagSeconds)}
-                            </Typography>
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                           </Box>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
@@ -483,7 +436,6 @@ export default function RADashboard() {
                           </Box>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-<<<<<<< HEAD
                           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5 }}>
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                               <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: activity.eciActive ? '#10b981' : '#ef4444' }} />
@@ -495,24 +447,6 @@ export default function RADashboard() {
                             </Box>
                           </Box>
                         </TableCell>
-=======
-                          <Box sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            px: 2,
-                            py: 1,
-                            borderRadius: '6px',
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
-                            ...activity.styles
-                          }}>
-                            {activity.label}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center" sx={{ py: 1, color: '#475569', fontSize: '0.82rem' }}>
-                          {formatTime(data.eci_last_updated_at)}
-                        </TableCell>
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                       </TableRow>
                     );
                   })}

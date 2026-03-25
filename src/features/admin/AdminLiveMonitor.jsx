@@ -29,11 +29,8 @@ import {
 } from '@mui/material';
 import {
   Search as SearchIcon,
-<<<<<<< HEAD
-=======
   FiberManualRecord as ActiveIcon,
   Error as ErrorIcon,
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 } from '@mui/icons-material';
 
 const ACTIVITY_THRESHOLD_MS = 100000;
@@ -109,11 +106,7 @@ export default function AdminLiveMonitor() {
       // Separately fetch all election data
       const { data: electionData, error: electionErr } = await supabase
         .from('election_data')
-<<<<<<< HEAD
         .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at');
-=======
-        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, eci_round_updated_at, tool_round_updated_at');
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 
       if (electionErr) throw electionErr;
 
@@ -180,39 +173,12 @@ export default function AdminLiveMonitor() {
       const data = row.election_data?.[0];
       const eciRound = data?.eci_round || 0;
       const toolRound = data?.tool_round || 0;
-<<<<<<< HEAD
       const eciRoundUpdatedMillis = data?.eci_round_updated_at ? new Date(data.eci_round_updated_at).getTime() : null;
       const toolRoundUpdatedMillis = data?.tool_round_updated_at ? new Date(data.tool_round_updated_at).getTime() : null;
 
       const eciActive = !!eciRoundUpdatedMillis && (now - eciRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS);
       const toolActive = !!toolRoundUpdatedMillis && (now - toolRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS);
       const status = eciActive && toolActive ? 'Active' : 'Inactive';
-=======
-      const eciLastUpdatedMillis = data?.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
-      const eciRoundUpdatedMillis = data?.eci_round_updated_at ? new Date(data.eci_round_updated_at).getTime() : null;
-      const toolRoundUpdatedMillis = data?.tool_round_updated_at ? new Date(data.tool_round_updated_at).getTime() : null;
-
-      const eciLagSeconds = eciLastUpdatedMillis ? Math.floor((now - eciLastUpdatedMillis) / 1000) : null;
-      const toolLagSeconds = toolRoundUpdatedMillis ? Math.floor((now - toolRoundUpdatedMillis) / 1000) : null;
-      const eciRoundLagSeconds = eciRoundUpdatedMillis ? Math.floor((now - eciRoundUpdatedMillis) / 1000) : null;
-
-      let status = 'Not Started';
-      let statusColor = 'default';
-      let statusIcon = null;
-
-      const latestLag = Math.max(eciRoundLagSeconds || 0, toolLagSeconds || 0);
-      if (eciRoundUpdatedMillis || toolRoundUpdatedMillis) {
-        if (latestLag <= 60) {
-          status = 'Active';
-          statusColor = 'success';
-          statusIcon = <ActiveIcon sx={{ fontSize: '0.8rem', animation: 'pulse 2s infinite' }} />;
-        } else {
-          status = 'Inactive';
-          statusColor = 'error';
-          statusIcon = <ErrorIcon sx={{ fontSize: '0.8rem' }} />;
-        }
-      }
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 
       const tlEmail = emailMap[row.assigned_tl_id]?.email || 'Unassigned';
       const tlName = emailMap[row.assigned_tl_id]?.name || 'Unassigned';
@@ -231,14 +197,8 @@ export default function AdminLiveMonitor() {
         ...row,
         eciRound,
         toolRound,
-<<<<<<< HEAD
         eciActive,
         toolActive,
-=======
-        eciLastUpdatedAt: data?.eci_last_updated_at || null,
-        eciLagSeconds,
-        toolLagSeconds,
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
         status,
         tlEmail,
         tlName,
@@ -306,8 +266,6 @@ export default function AdminLiveMonitor() {
     setPage(0);
   };
 
-<<<<<<< HEAD
-=======
   const formatLag = (seconds) => {
     if (seconds === null) return '--';
     const m = Math.floor(seconds / 60);
@@ -329,7 +287,6 @@ export default function AdminLiveMonitor() {
     return d.toLocaleString();
   };
 
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
   const getSyncChipStyles = (syncStatus) => {
     if (syncStatus === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
     if (syncStatus === 'Not Started') return { backgroundColor: '#e2e8f0', color: '#64748b' };
@@ -392,13 +349,10 @@ export default function AdminLiveMonitor() {
             }}
           >
             <MenuItem value="All">All Statuses</MenuItem>
-<<<<<<< HEAD
             <MenuItem value="Active">Active (&le;100s)</MenuItem>
             <MenuItem value="Inactive">Inactive (&gt;100s)</MenuItem>
-=======
             <MenuItem value="Active">Active (&lt;1m)</MenuItem>
             <MenuItem value="Inactive">Inactive (&gt;1m)</MenuItem>
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
           </Select>
         </FormControl>
 
@@ -474,10 +428,7 @@ export default function AdminLiveMonitor() {
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Tool Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Sync Status</TableCell>
-<<<<<<< HEAD
-=======
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Last Updated</TableCell>
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Team Lead</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Research Analyst</TableCell>
                   </TableRow>
@@ -486,7 +437,6 @@ export default function AdminLiveMonitor() {
                   {paginatedData.map((row) => (
                     <TableRow key={row.id} sx={{ '&:hover': { bgcolor: '#f8fafc' }, transition: 'all 0.2s ease', borderBottom: '1px solid #e2e8f0' }}>
                       <TableCell sx={{ py: 1 }}>
-<<<<<<< HEAD
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Stack direction="row" spacing={0.5} alignItems="center">
                             <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: row.eciActive ? '#10b981' : '#ef4444' }} />
@@ -497,7 +447,6 @@ export default function AdminLiveMonitor() {
                             <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
                           </Stack>
                         </Stack>
-=======
                         <Box sx={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -514,7 +463,6 @@ export default function AdminLiveMonitor() {
                           {row.statusIcon}
                           {row.status}
                         </Box>
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>
                         <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f4c75', fontSize: '0.9rem' }}>
@@ -568,8 +516,6 @@ export default function AdminLiveMonitor() {
                           {row.syncStatus}
                         </Box>
                       </TableCell>
-<<<<<<< HEAD
-=======
                       <TableCell sx={{ py: 1 }}>
                         <Typography variant="body2" sx={{ color: '#334155', fontSize: '0.82rem' }}>
                           {formatTimestamp(row.eciLastUpdatedAt)}
@@ -585,7 +531,6 @@ export default function AdminLiveMonitor() {
                           ECI {formatLag(row.eciLagSeconds)} | TOOL {formatLag(row.toolLagSeconds)}
                         </Typography>
                       </TableCell> */}
->>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                       <TableCell sx={{ py: 2 }}>
                         {row.tlEmail === 'Unassigned' ? (
                           <Chip label="—" size="small" variant="outlined" />
