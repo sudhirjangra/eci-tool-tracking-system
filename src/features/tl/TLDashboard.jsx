@@ -111,7 +111,11 @@ export default function TLDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('election_data')
+<<<<<<< HEAD
         .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at');
+=======
+        .select('constituency_id, eci_round, tool_round, eci_last_updated_at, eci_round_updated_at, tool_round_updated_at');
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
       if (error) throw error;
       return data || [];
     },
@@ -154,6 +158,7 @@ export default function TLDashboard() {
         const assigned = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id);
         const territories = assigned.map((c) => {
           const data = map[c.id] || {};
+<<<<<<< HEAD
           const eciRoundUpdatedMillis = data.eci_round_updated_at ? new Date(data.eci_round_updated_at).getTime() : null;
           const toolRoundUpdatedMillis = data.tool_round_updated_at ? new Date(data.tool_round_updated_at).getTime() : null;
           const eciActive = !!eciRoundUpdatedMillis && (Date.now() - eciRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS);
@@ -162,6 +167,19 @@ export default function TLDashboard() {
           const status = (!eciRoundUpdatedMillis && !toolRoundUpdatedMillis)
             ? 'No Data'
             : (eciActive && toolActive ? 'Active' : 'Inactive');
+=======
+          const eciLastUpdatedMillis = data.eci_last_updated_at ? new Date(data.eci_last_updated_at).getTime() : null;
+          const eciRoundUpdatedMillis = data.eci_round_updated_at ? new Date(data.eci_round_updated_at).getTime() : null;
+          const toolRoundUpdatedMillis = data.tool_round_updated_at ? new Date(data.tool_round_updated_at).getTime() : null;
+          const eciLagSeconds = eciLastUpdatedMillis ? Math.max(0, Math.floor((Date.now() - eciLastUpdatedMillis) / 1000)) : null;
+
+          const territoryLagSeconds = Math.max(
+            eciRoundUpdatedMillis ? Math.max(0, Math.floor((Date.now() - eciRoundUpdatedMillis) / 1000)) : 0,
+            toolRoundUpdatedMillis ? Math.max(0, Math.floor((Date.now() - toolRoundUpdatedMillis) / 1000)) : 0
+          );
+          const status = (eciRoundUpdatedMillis || toolRoundUpdatedMillis) ?
+            (territoryLagSeconds <= 60 ? 'Active' : 'Inactive') : 'No Data';
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 
           const syncDelta = (data.eci_round ?? 0) - (data.tool_round ?? 0);
           const syncStatus = (data.eci_round ?? 0) === 0 && (data.tool_round ?? 0) === 0
@@ -179,8 +197,13 @@ export default function TLDashboard() {
             tool_name: c.tool_name || '—',
             eci_round: data.eci_round ?? 0,
             tool_round: data.tool_round ?? 0,
+<<<<<<< HEAD
             eciActive,
             toolActive,
+=======
+            eci_last_updated_at: data.eci_last_updated_at ? new Date(data.eci_last_updated_at).toLocaleString() : '-',
+            eciLagSeconds: eciLagSeconds !== null ? eciLagSeconds : '-',
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
             status,
             syncStatus,
           };
@@ -194,6 +217,16 @@ export default function TLDashboard() {
         const raStatus = territories.length === 0 ? 'No Data' : 
                         activeCount === territories.length ? 'Active' :
                         inactiveCount === territories.length ? 'Inactive' : 'Mixed';
+<<<<<<< HEAD
+=======
+
+        const lastUpdatedAt = territories
+          .flatMap((x) => [x.eci_last_updated_at])
+          .map((ts) => (ts && ts !== '-' ? new Date(ts).getTime() : 0))
+          .filter(Boolean);
+        const latestUpdate = lastUpdatedAt.length ? new Date(Math.max(...lastUpdatedAt)).toLocaleString() : '-';
+        const latestUpdateTime = lastUpdatedAt.length ? Math.max(...lastUpdatedAt) : 0;
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 
         return {
           ...ra,
@@ -224,6 +257,23 @@ export default function TLDashboard() {
 
     return rows;
   }, [myRAs, myConstituencies, electionData, searchRA, filterRA, filterStatus, sortBy]);
+<<<<<<< HEAD
+=======
+
+  const formatLag = (seconds) => {
+    if (seconds === null || seconds === '-' || seconds === undefined) return '--';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  const getLagPalette = (seconds) => {
+    if (seconds === null || seconds === '-' || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
+    if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
+    if (seconds <= 120) return { bgcolor: '#fef3c7', color: '#92400e' };
+    return { bgcolor: '#fee2e2', color: '#991b1b' };
+  };
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -668,7 +718,12 @@ export default function TLDashboard() {
                       <TableCell>Research Analyst</TableCell>
                       <TableCell align="center">Assigned Constituencies</TableCell>
                       <TableCell align="center">Performance Status</TableCell>
+<<<<<<< HEAD
                       <TableCell align="center">ECI / Tool Health</TableCell>
+=======
+                      <TableCell align="center">Active / Inactive</TableCell>
+                      <TableCell align="center">Latest Update</TableCell>
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -693,6 +748,7 @@ export default function TLDashboard() {
                           </TableCell>
                           <TableCell align="center" sx={{ fontSize: '0.85rem' }}>
                             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+<<<<<<< HEAD
                               {item.territories.length > 0 && (
                                 <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5 }}>
                                   <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
@@ -703,6 +759,16 @@ export default function TLDashboard() {
                                     <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.toolActiveCount === item.territories.length ? '#10b981' : '#ef4444' }} />
                                     <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>TOOL {item.toolActiveCount}/{item.territories.length}</Typography>
                                   </Box>
+=======
+                              {item.activeCount > 0 && (
+                                <Box sx={{ px: 1.5, py: 0.5, bg: '#d1fae5', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#047857' }}>
+                                  ✓ {item.activeCount}
+                                </Box>
+                              )}
+                              {item.inactiveCount > 0 && (
+                                <Box sx={{ px: 1.5, py: 0.5, bg: '#fee2e2', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#991b1b' }}>
+                                  ✕ {item.inactiveCount}
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                                 </Box>
                               )}
                               {item.territories.length === 0 && (
@@ -726,13 +792,22 @@ export default function TLDashboard() {
                                       <TableCell align="center">ECI Round</TableCell>
                                       <TableCell align="center">Tool Round</TableCell>
                                       <TableCell align="center">Sync Status</TableCell>
+<<<<<<< HEAD
                                       <TableCell align="center">ECI / Tool</TableCell>
+=======
+                                      <TableCell align="center">Status</TableCell>
+                                      <TableCell align="center">ECI Last Updated</TableCell>
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
                                     {item.territories.length === 0 ? (
                                       <TableRow>
+<<<<<<< HEAD
                                         <TableCell colSpan={7} align="center">No assigned constituencies</TableCell>
+=======
+                                        <TableCell colSpan={8} align="center">No assigned constituencies</TableCell>
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                                       </TableRow>
                                     ) : (
                                       item.territories.map((territory) => (
@@ -741,11 +816,33 @@ export default function TLDashboard() {
                                           <TableCell>{territory.eci_name}</TableCell>
                                           <TableCell>{territory.tool_name}</TableCell>
                                           <TableCell align="center">
-                                            <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round}</Typography>
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                                              <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round}</Typography>
+                                              <Typography variant="caption" sx={{ fontWeight: 600, fontFamily: 'monospace', ...getLagPalette(territory.eciLagSeconds) }}>
+                                                {formatLag(territory.eciLagSeconds)}
+                                              </Typography>
+                                            </Box>
                                           </TableCell>
                                           <TableCell align="center">
                                             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                                               <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{territory.tool_round}</Typography>
+<<<<<<< HEAD
+=======
+                                            </Box>
+                                          </TableCell>
+                                          <TableCell align="center">
+                                            <Box sx={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              px: 1.5,
+                                              py: 0.5,
+                                              borderRadius: '4px',
+                                              fontWeight: 600,
+                                              fontSize: '0.75rem',
+                                              ...getSyncStatusColor(territory.syncStatus)
+                                            }}>
+                                              {territory.syncStatus}
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                                             </Box>
                                           </TableCell>
                                           <TableCell align="center">
@@ -774,6 +871,10 @@ export default function TLDashboard() {
                                               </Box>
                                             </Box>
                                           </TableCell>
+<<<<<<< HEAD
+=======
+                                          <TableCell align="center" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', color: '#64748b' }}>{territory.eci_last_updated_at}</TableCell>
+>>>>>>> 367e87d81cc7ec0244658f3a5e14001b14389c33
                                         </TableRow>
                                       ))
                                     )}
