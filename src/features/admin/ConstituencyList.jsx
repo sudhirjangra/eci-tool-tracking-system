@@ -33,16 +33,19 @@ export default function ConstituencyList() {
         .from('constituencies')
         .select(`
           id,
+          state_id,
           eci_id,
           tool_name,
-          states (name),
+          states (id, name),
           assigned_tl_id,
           assigned_ra_id,
           election_data(
             constituency_id,
             eci_round,
             tool_round,
-            eci_updated_at
+            eci_updated_at,
+            eci_round_updated_at,
+            tool_round_updated_at
           )
         `)
         .order('states(name)', { ascending: true })

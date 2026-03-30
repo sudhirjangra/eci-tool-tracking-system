@@ -81,8 +81,9 @@ export default function RADashboard() {
         .from('constituencies')
         .select(`
           id, 
+          state_id,
           tool_name, 
-          states(name),
+          states(id, name),
           assigned_ra_id,
           election_data(
             constituency_id,

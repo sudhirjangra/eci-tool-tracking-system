@@ -15,7 +15,7 @@ export default function ExpandableRATableRow({ ra, managerEmail }) {
       setLoading(true);
       supabase
         .from('constituencies')
-        .select('tool_name, states(name)')
+        .select('id, state_id, tool_name, states(id, name)')
         .eq('assigned_ra_id', ra.id)
         .then(({ data }) => {
           setConstituencies(data || []);

@@ -28,7 +28,7 @@ export default function ViewUserMapModal({ isOpen, onClose, user }) {
       
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_id, tool_name, states(name)`)
+        .select(`id, state_id, eci_id, tool_name, states(id, name)`)
         .eq(column, user.id)
         .order('states(name)', { ascending: true })
         .order('tool_name', { ascending: true, nullsFirst: false });

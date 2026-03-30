@@ -43,7 +43,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
       if (!tl?.id) return [];
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_id, tool_name, states(name), assigned_tl_id`)
+        .select(`id, state_id, eci_id, tool_name, states(id, name), assigned_tl_id`)
         .order('states(name)', { ascending: true })
         .order('tool_name', { ascending: true, nullsFirst: false });
       if (error) throw error;

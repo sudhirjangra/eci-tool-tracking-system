@@ -41,7 +41,7 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
       if (!tlId) return [];
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_id, tool_name, states(name), assigned_ra_id`)
+        .select(`id, state_id, eci_id, tool_name, states(id, name), assigned_ra_id`)
         .eq('assigned_tl_id', tlId)
         .order('states(name)', { ascending: true })
         .order('tool_name', { ascending: true, nullsFirst: false });
