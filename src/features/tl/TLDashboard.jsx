@@ -112,10 +112,9 @@ export default function TLDashboard() {
         .from('constituencies')
         .select(`
           id,
-          state_id,
           eci_id,
           tool_name,
-          states(id, name),
+          states(name),
           assigned_ra_id,
           election_data(
             constituency_id,

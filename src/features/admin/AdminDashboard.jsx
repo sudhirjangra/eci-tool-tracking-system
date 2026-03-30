@@ -79,13 +79,11 @@ export default function AdminDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('constituencies')
-        .select('id, state_id, tool_name, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at, eci_round, tool_round, eci_updated_at)');
+        .select('id, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at)');
       if (error) throw error;
 
       return (data || []).map((row) => ({
         id: row.id,
-        state_id: row.state_id,
-        tool_name: row.tool_name,
         election: row.election_data?.[0] || null,
       }));
     },

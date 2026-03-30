@@ -108,9 +108,8 @@ export default function AdminLiveMonitor() {
         .from('constituencies')
         .select(`
           id,
-          state_id,
           tool_name,
-          states(id, name),
+          states(name),
           assigned_tl_id,
           assigned_ra_id,
           election_data(
