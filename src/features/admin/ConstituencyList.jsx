@@ -53,6 +53,9 @@ export default function ConstituencyList() {
 
       return constData || [];
     },
+    staleTime: 30000,
+    gcTime: 60 * 60 * 1000,
+    refetchInterval: 60000,
   });
 
   if (isLoading) {

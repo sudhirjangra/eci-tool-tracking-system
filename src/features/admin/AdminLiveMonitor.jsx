@@ -91,10 +91,6 @@ export default function AdminLiveMonitor() {
   const [now, setNow] = useState(Date.now());
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [filterTL, setFilterTL] = useState('All');
-  const [filterRA, setFilterRA] = useState('All');
-  const [filterLag, setFilterLag] = useState('All');
-  const [filterUpdate, setFilterUpdate] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
@@ -129,8 +125,9 @@ export default function AdminLiveMonitor() {
       if (constErr) throw constErr;
       return constData || [];
     },
-    staleTime: Infinity,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 30000, // Refetch every 30 seconds as fallback
+    gcTime: 60 * 60 * 1000,
+    refetchInterval: 60000, // Actively refetch every 60 seconds
   });
 
   // 2. Fetch All User Names and Emails for Translation
@@ -184,7 +181,7 @@ export default function AdminLiveMonitor() {
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterLag, filterRA, filterState, filterStatus, filterTL, filterUpdate, searchTerm, sortBy]);
+  }, [filterState, filterStatus, searchTerm, sortBy]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
@@ -229,20 +226,12 @@ export default function AdminLiveMonitor() {
       const matchesSearch =
         row.constituencyName.toLowerCase().includes(query) ||
         (row.states?.name || '').toLowerCase().includes(query) ||
-        String(row.eci_id || '').includes(query) ||
-        row.tlName.toLowerCase().includes(query) ||
-        row.raName.toLowerCase().includes(query);
+        String(row.eci_id || '').includes(query);
+      
       const matchesState = filterState === 'All' || row.states?.name === filterState;
       const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
-      const matchesTL = filterTL === 'All' || row.assigned_tl_id === filterTL;
-      const matchesRA = filterRA === 'All' || row.assigned_ra_id === filterRA;
-      const matchesLag = filterLag === 'All' || row.lagBucket === filterLag;
-      const matchesUpdate =
-        filterUpdate === 'All' ||
-        (filterUpdate === 'Has Update' && row.hasEciUpdate) ||
-        (filterUpdate === 'No Update' && !row.hasEciUpdate);
 
-      return matchesSearch && matchesState && matchesStatus && matchesTL && matchesRA && matchesLag && matchesUpdate;
+      return matchesSearch && matchesState && matchesStatus;
     });
 
     rows.sort((left, right) => {
@@ -270,41 +259,10 @@ export default function AdminLiveMonitor() {
     });
 
     return rows;
-  }, [filterLag, filterRA, filterState, filterStatus, filterTL, filterUpdate, processedData, searchTerm, sortBy]);
+  }, [filterState, filterStatus, processedData, searchTerm, sortBy]);
 
   const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
   
-  // Get unique TLs for the dropdown
-  const uniqueTLs = useMemo(() => {
-    if (!rawData) return [];
-    const tlMap = new Map();
-    rawData.forEach(r => {
-      if (r.assigned_tl_id) {
-        const mapped = emailMap[r.assigned_tl_id];
-        tlMap.set(
-          r.assigned_tl_id,
-          mapped ? `${mapped.name || mapped.email} - ${mapped.email}` : r.assigned_tl_id
-        );
-      }
-    });
-    return Array.from(tlMap.entries());
-  }, [rawData, emailMap]);
-
-  const uniqueRAs = useMemo(() => {
-    if (!rawData) return [];
-    const raMap = new Map();
-    rawData.forEach(r => {
-      if (r.assigned_ra_id) {
-        const mapped = emailMap[r.assigned_ra_id];
-        raMap.set(
-          r.assigned_ra_id,
-          mapped ? `${mapped.name || mapped.email} - ${mapped.email}` : r.assigned_ra_id
-        );
-      }
-    });
-    return Array.from(raMap.entries());
-  }, [rawData, emailMap]);
-
   // Pagination for table
   const paginatedData = useMemo(() => {
     return filteredData.slice(page * rowsPerPage, (page + 1) * rowsPerPage);
@@ -338,14 +296,14 @@ export default function AdminLiveMonitor() {
       {/* Middle Section - Filters */}
       <Box sx={{ p: 0.5, px: 1, bgcolor: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 1.25, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <TextField
-          placeholder="Search constituency, state, ECI ID, TL, or RA..."
+          placeholder="Search constituency, state, or ECI ID..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           InputProps={{
             startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: '#94a3b8' }} /></InputAdornment>,
           }}
           sx={{
-            minWidth: 200,
+            minWidth: 250,
             '& .MuiOutlinedInput-root': {
               bgcolor: '#f8fafc',
               borderRadius: '8px',
@@ -393,43 +351,7 @@ export default function AdminLiveMonitor() {
           </Select>
         </FormControl>
 
-        <FormControl sx={{ minWidth: 140 }} size="small">
-          <InputLabel>ECI Lag</InputLabel>
-          <Select
-            value={filterLag}
-            label="ECI Lag"
-            onChange={(e) => setFilterLag(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
-          >
-            <MenuItem value="All">All Lags</MenuItem>
-            <MenuItem value="Fresh">Fresh</MenuItem>
-            <MenuItem value="Aging">Aging</MenuItem>
-            <MenuItem value="Stale">Stale</MenuItem>
-            <MenuItem value="Unknown">Unknown</MenuItem>
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 150 }} size="small">
-          <InputLabel>ECI Update</InputLabel>
-          <Select
-            value={filterUpdate}
-            label="ECI Update"
-            onChange={(e) => setFilterUpdate(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
-          >
-            <MenuItem value="All">All Updates</MenuItem>
-            <MenuItem value="Has Update">Has Update</MenuItem>
-            <MenuItem value="No Update">No Update</MenuItem>
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 160 }} size="small">
+        <FormControl sx={{ minWidth: 180 }} size="small">
           <InputLabel>Sort</InputLabel>
           <Select
             value={sortBy}
@@ -448,50 +370,6 @@ export default function AdminLiveMonitor() {
             <MenuItem value="status">Status</MenuItem>
           </Select>
         </FormControl>
-
-        <FormControl sx={{ minWidth: 160 }} size="small">
-          <InputLabel>Team Leader</InputLabel>
-          <Select
-            value={filterTL}
-            label="Team Leader"
-            onChange={(e) => setFilterTL(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
-          >
-            <MenuItem value="All">All Team Leaders</MenuItem>
-            {uniqueTLs.map(([id, email]) => (
-              <MenuItem key={id} value={id}>{email}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 170 }} size="small">
-          <InputLabel>Research Analyst</InputLabel>
-          <Select
-            value={filterRA}
-            label="Research Analyst"
-            onChange={(e) => setFilterRA(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
-          >
-            <MenuItem value="All">All Research Analysts</MenuItem>
-            {uniqueRAs.map(([id, label]) => (
-              <MenuItem key={id} value={id}>{label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
-          <Box sx={{ px: 1.25, py: 0.5, bgcolor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
-            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: '#059669' }}>
-              Showing {filteredData.length}/{processedData.length}
-            </Typography>
-          </Box>
-        </Box>
       </Box>
 
       {/* Main Table Area */}

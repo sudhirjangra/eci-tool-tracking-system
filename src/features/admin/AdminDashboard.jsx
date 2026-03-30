@@ -89,8 +89,9 @@ export default function AdminDashboard() {
         election: row.election_data?.[0] || null,
       }));
     },
-    staleTime: Infinity,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 30000,
+    gcTime: 60 * 60 * 1000,
+    refetchInterval: 60000,
   });
 
   useEffect(() => {

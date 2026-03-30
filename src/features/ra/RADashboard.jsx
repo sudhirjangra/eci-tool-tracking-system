@@ -103,8 +103,9 @@ export default function RADashboard() {
       return data || [];
     },
     enabled: !!currentUser?.id,
-    staleTime: Infinity,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 30000,
+    gcTime: 60 * 60 * 1000,
+    refetchInterval: 60000,
   });
 
   // Fetch the RA's manager (TL)
