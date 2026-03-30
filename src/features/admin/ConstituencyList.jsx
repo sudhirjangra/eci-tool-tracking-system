@@ -33,6 +33,7 @@ export default function ConstituencyList() {
         .from('constituencies')
         .select(`
           id,
+          state_id,
           eci_id,
           tool_name,
           states (name),
