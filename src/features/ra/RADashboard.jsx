@@ -41,6 +41,7 @@ export default function RADashboard() {
   const [currentUser, setCurrentUser] = useState(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
+  const [filterSyncStatus, setFilterSyncStatus] = useState('All');
   const [filterLag, setFilterLag] = useState('All');
   const [filterUpdate, setFilterUpdate] = useState('All');
   const [sortBy, setSortBy] = useState('name');
@@ -147,10 +148,21 @@ export default function RADashboard() {
       patchNestedElectionRows,
     );
 
-    const channel = supabase.channel('ra-election-updates')
+    // Create unique channel name with timestamp and user ID to avoid conflicts
+    const channelName = `ra-election-${currentUser.id}-${Date.now()}`;
+    const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
         scheduler.push(payload);
-      }).subscribe();
+      })
+      .subscribe((status, err) => {
+        if (err) {
+          console.warn(`[RADashboard] Real-time subscription error: ${err.message}`);
+        } else if (status === 'SUBSCRIBED') {
+          console.log(`[RADashboard] Real-time subscription active: ${channelName}`);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error(`[RADashboard] Channel error: ${channelName}`);
+        }
+      });
 
     return () => {
       scheduler.dispose();
@@ -197,6 +209,10 @@ export default function RADashboard() {
       rows = rows.filter((assignment) => assignment.activity.status === filterStatus);
     }
 
+    if (filterSyncStatus !== 'All') {
+      rows = rows.filter((assignment) => assignment.syncStatus === filterSyncStatus);
+    }
+
     if (filterLag !== 'All') {
       rows = rows.filter((assignment) => assignment.lagBucket === filterLag);
     }
@@ -226,7 +242,7 @@ export default function RADashboard() {
     });
 
     return rows;
-  }, [assignments, filterLag, filterStatus, filterUpdate, now, search, sortBy]);
+  }, [assignments, filterLag, filterStatus, filterSyncStatus, filterUpdate, now, search, sortBy]);
 
   const getSyncStatusChip = (status) => {
     if (status === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
@@ -374,6 +390,16 @@ export default function RADashboard() {
                   <MenuItem value="All">All Statuses</MenuItem>
                   <MenuItem value="Active">Active</MenuItem>
                   <MenuItem value="Inactive">Inactive</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Sync Status</InputLabel>
+                <Select value={filterSyncStatus} label="Sync Status" onChange={(event) => setFilterSyncStatus(event.target.value)}>
+                  <MenuItem value="All">All Sync Status</MenuItem>
+                  <MenuItem value="In Sync">In Sync ✓</MenuItem>
+                  <MenuItem value="Not Started">Not Started</MenuItem>
+                  <MenuItem value="ECI +1">ECI Ahead</MenuItem>
+                  <MenuItem value="Tool +1">Tool Ahead</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 140 }}>

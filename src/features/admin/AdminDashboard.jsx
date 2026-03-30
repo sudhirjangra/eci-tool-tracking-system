@@ -101,11 +101,21 @@ export default function AdminDashboard() {
       (previous, payload) => patchNestedElectionById(previous, payload),
     );
 
-    const channel = supabase.channel('admin-nav-election-updates')
+    // Create unique channel name with timestamp to avoid conflicts
+    const channelName = `admin-nav-election-${Date.now()}`;
+    const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
         scheduler.push(payload);
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        if (err) {
+          console.warn(`[AdminDashboard] Real-time subscription error: ${err.message}`);
+        } else if (status === 'SUBSCRIBED') {
+          console.log(`[AdminDashboard] Real-time subscription active: ${channelName}`);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error(`[AdminDashboard] Channel error: ${channelName}`);
+        }
+      });
 
     return () => {
       scheduler.dispose();

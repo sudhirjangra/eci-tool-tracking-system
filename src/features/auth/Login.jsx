@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 import {
   Box,
   TextField,
@@ -19,8 +20,6 @@ import {
   HowToVote as VotingIcon,
 } from '@mui/icons-material';
 
-let supabase = null;
-
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,11 +34,6 @@ export default function Login() {
     setError(null);
 
     try {
-      if (!supabase) {
-        const module = await import('../../lib/supabase.js');
-        supabase = module.supabase;
-      }
-
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,

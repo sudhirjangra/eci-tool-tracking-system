@@ -91,6 +91,9 @@ export default function AdminLiveMonitor() {
   const [now, setNow] = useState(Date.now());
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
+  const [filterSyncStatus, setFilterSyncStatus] = useState('All');
+  const [filterLagBucket, setFilterLagBucket] = useState('All');
+  const [filterAssignment, setFilterAssignment] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
@@ -159,10 +162,21 @@ export default function AdminLiveMonitor() {
       patchNestedElectionRows,
     );
 
-    const channel = supabase.channel('live-election-updates')
+    // Create unique channel name with timestamp to avoid conflicts
+    const channelName = `admin-live-election-${Date.now()}`;
+    const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
         scheduler.push(payload);
-      }).subscribe();
+      })
+      .subscribe((status, err) => {
+        if (err) {
+          console.warn(`[AdminLiveMonitor] Real-time subscription error: ${err.message}`);
+        } else if (status === 'SUBSCRIBED') {
+          console.log(`[AdminLiveMonitor] Real-time subscription active: ${channelName}`);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error(`[AdminLiveMonitor] Channel error: ${channelName}`);
+        }
+      });
 
     return () => {
       scheduler.dispose();
@@ -181,7 +195,7 @@ export default function AdminLiveMonitor() {
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterState, filterStatus, searchTerm, sortBy]);
+  }, [filterState, filterStatus, filterSyncStatus, filterLagBucket, filterAssignment, searchTerm, sortBy]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
@@ -230,8 +244,14 @@ export default function AdminLiveMonitor() {
       
       const matchesState = filterState === 'All' || row.states?.name === filterState;
       const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
+      const matchesSyncStatus = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
+      const matchesLagBucket = filterLagBucket === 'All' || row.lagBucket === filterLagBucket;
+      const matchesAssignment = 
+        filterAssignment === 'All' ||
+        (filterAssignment === 'Assigned' && (row.assigned_tl_id || row.assigned_ra_id)) ||
+        (filterAssignment === 'Unassigned' && (!row.assigned_tl_id && !row.assigned_ra_id));
 
-      return matchesSearch && matchesState && matchesStatus;
+      return matchesSearch && matchesState && matchesStatus && matchesSyncStatus && matchesLagBucket && matchesAssignment;
     });
 
     rows.sort((left, right) => {
@@ -259,7 +279,7 @@ export default function AdminLiveMonitor() {
     });
 
     return rows;
-  }, [filterState, filterStatus, processedData, searchTerm, sortBy]);
+  }, [filterState, filterStatus, filterSyncStatus, filterLagBucket, filterAssignment, processedData, searchTerm, sortBy]);
 
   const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
   
@@ -348,6 +368,61 @@ export default function AdminLiveMonitor() {
             <MenuItem value="All">All Statuses</MenuItem>
             <MenuItem value="Active">Active (&le;100s)</MenuItem>
             <MenuItem value="Inactive">Inactive (&gt;100s)</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 160 }} size="small">
+          <InputLabel>Sync Status</InputLabel>
+          <Select
+            value={filterSyncStatus}
+            label="Sync Status"
+            onChange={(e) => setFilterSyncStatus(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Sync Status</MenuItem>
+            <MenuItem value="In Sync">In Sync ✓</MenuItem>
+            <MenuItem value="Not Started">Not Started</MenuItem>
+            <MenuItem value="ECI +1">ECI Ahead</MenuItem>
+            <MenuItem value="Tool +1">Tool Ahead</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 140 }} size="small">
+          <InputLabel>ECI Lag</InputLabel>
+          <Select
+            value={filterLagBucket}
+            label="ECI Lag"
+            onChange={(e) => setFilterLagBucket(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Lag</MenuItem>
+            <MenuItem value="Fresh">&lt;1 min (Fresh)</MenuItem>
+            <MenuItem value="Aging">1-5 min (Aging)</MenuItem>
+            <MenuItem value="Stale">&gt;5 min (Stale)</MenuItem>
+            <MenuItem value="Unknown">No Data</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 140 }} size="small">
+          <InputLabel>Assignment</InputLabel>
+          <Select
+            value={filterAssignment}
+            label="Assignment"
+            onChange={(e) => setFilterAssignment(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Assignments</MenuItem>
+            <MenuItem value="Assigned">Assigned ✓</MenuItem>
+            <MenuItem value="Unassigned">Unassigned ⚠</MenuItem>
           </Select>
         </FormControl>
 

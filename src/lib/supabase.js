@@ -3,13 +3,28 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Standard client for the logged-in user
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Single instance for the logged-in user - reused across all components
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10, // Prevent excessive events
+    }
+  }
+});
 
-// "Silent" client for the Admin to create users without logging themselves out
+// Optional: "Silent" client for admin operations (disabled channel subscriptions)
 export const supabaseAdminAuth = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
   },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    }
+  }
 });

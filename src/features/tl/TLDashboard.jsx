@@ -71,6 +71,8 @@ export default function TLDashboard() {
   const [sortBy, setSortBy] = useState('name');
   const [mapSearch, setMapSearch] = useState('');
   const [mapState, setMapState] = useState('');
+  const [mapStatus, setMapStatus] = useState('All');
+  const [mapSyncStatus, setMapSyncStatus] = useState('All');
   const [mapLag, setMapLag] = useState('');
   const [mapUpdate, setMapUpdate] = useState('');
   const [mapSortBy, setMapSortBy] = useState('name');
@@ -159,10 +161,21 @@ export default function TLDashboard() {
       patchNestedElectionRows,
     );
 
-    const channel = supabase.channel('tl-election-updates')
+    // Create unique channel name with timestamp and user ID to avoid conflicts
+    const channelName = `tl-election-${currentUser.id}-${Date.now()}`;
+    const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
         scheduler.push(payload);
-      }).subscribe();
+      })
+      .subscribe((status, err) => {
+        if (err) {
+          console.warn(`[TLDashboard] Real-time subscription error: ${err.message}`);
+        } else if (status === 'SUBSCRIBED') {
+          console.log(`[TLDashboard] Real-time subscription active: ${channelName}`);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error(`[TLDashboard] Channel error: ${channelName}`);
+        }
+      });
 
     return () => {
       scheduler.dispose();
@@ -179,6 +192,8 @@ export default function TLDashboard() {
     const rows = (myConstituencies || []).map((constituency) => {
       const election = constituency.election_data?.[0] || {};
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
+      const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
+      const syncStatus = getSyncStatus(election.eci_round ?? 0, election.tool_round ?? 0);
 
       return {
         ...constituency,
@@ -188,6 +203,8 @@ export default function TLDashboard() {
         lagBucket: getLagBucket(lagSeconds),
         hasEciUpdate: Boolean(election.eci_updated_at),
         updateSort: getSortTimestamp(election.eci_updated_at),
+        status: activity.status,
+        syncStatus,
       };
     }).filter((row) => {
       const matchesSearch =
@@ -196,10 +213,12 @@ export default function TLDashboard() {
         (row.states?.name || '').toLowerCase().includes(query) ||
         String(row.eci_id || '').includes(query);
       const matchesState = !mapState || row.states?.name === mapState;
+      const matchesStatus = mapStatus === 'All' || row.status === mapStatus;
+      const matchesSyncStatus = mapSyncStatus === 'All' || row.syncStatus === mapSyncStatus;
       const matchesLag = !mapLag || row.lagBucket === mapLag;
       const matchesUpdate = !mapUpdate || (mapUpdate === 'has-update' ? row.hasEciUpdate : !row.hasEciUpdate);
 
-      return matchesSearch && matchesState && matchesLag && matchesUpdate;
+      return matchesSearch && matchesState && matchesStatus && matchesSyncStatus && matchesLag && matchesUpdate;
     });
 
     rows.sort((left, right) => {
@@ -223,7 +242,7 @@ export default function TLDashboard() {
     });
 
     return rows;
-  }, [mapLag, mapSearch, mapSortBy, mapState, mapUpdate, myConstituencies, now]);
+  }, [mapLag, mapSearch, mapSortBy, mapState, mapStatus, mapSyncStatus, mapUpdate, myConstituencies, now]);
 
   const raOptions = useMemo(() => {
     return (myRAs || []).map((ra) => ({
@@ -525,6 +544,32 @@ export default function TLDashboard() {
                 {stateOptions.map((state) => (
                   <MenuItem key={state} value={state}>{state}</MenuItem>
                 ))}
+              </Select>
+              <Select
+                displayEmpty
+                value={mapStatus}
+                onChange={(event) => setMapStatus(event.target.value)}
+                size="small"
+                sx={{ minWidth: 160, background: '#fff' }}
+                renderValue={(selected) => selected || 'Activity'}
+              >
+                <MenuItem value="All"><em>All Activity</em></MenuItem>
+                <MenuItem value="Active">Active (&le;100s)</MenuItem>
+                <MenuItem value="Inactive">Inactive (&gt;100s)</MenuItem>
+              </Select>
+              <Select
+                displayEmpty
+                value={mapSyncStatus}
+                onChange={(event) => setMapSyncStatus(event.target.value)}
+                size="small"
+                sx={{ minWidth: 160, background: '#fff' }}
+                renderValue={(selected) => selected || 'Sync Status'}
+              >
+                <MenuItem value="All"><em>All Sync</em></MenuItem>
+                <MenuItem value="In Sync">In Sync ✓</MenuItem>
+                <MenuItem value="Not Started">Not Started</MenuItem>
+                <MenuItem value="ECI +1">ECI Ahead</MenuItem>
+                <MenuItem value="Tool +1">Tool Ahead</MenuItem>
               </Select>
               <Select
                 displayEmpty
