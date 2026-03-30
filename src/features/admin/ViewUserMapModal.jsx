@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { getConstituencyName } from '../../lib/electionMetrics';
 import {
   Dialog,
   DialogTitle,
@@ -27,10 +28,10 @@ export default function ViewUserMapModal({ isOpen, onClose, user }) {
       
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_id, eci_name, tool_name, states(name)`)
+        .select(`id, eci_id, tool_name, states(name)`)
         .eq(column, user.id)
         .order('states(name)', { ascending: true })
-        .order('eci_name', { ascending: true });
+        .order('tool_name', { ascending: true, nullsFirst: false });
 
       if (error) throw error;
       return data;
@@ -164,18 +165,8 @@ export default function ViewUserMapModal({ isOpen, onClose, user }) {
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                           }}>
-                            {terr.eci_name}
+                            {getConstituencyName(terr)}
                           </Typography>
-                          {terr.tool_name && (
-                            <Typography variant="caption" sx={{
-                              color: '#666',
-                              display: 'block',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}>
-                              {terr.tool_name}
-                            </Typography>
-                          )}
                         </Paper>
                       </Grid>
                     ))}

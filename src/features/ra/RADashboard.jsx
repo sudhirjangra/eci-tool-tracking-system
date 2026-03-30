@@ -2,6 +2,17 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
+import {
+  getActivityFlags,
+  getConstituencyName,
+  getLagBucket,
+  getLagSeconds,
+  getSyncStatus,
+  formatLag,
+  formatTimestamp,
+  getSortTimestamp,
+} from '../../lib/electionMetrics';
 import {
   Box,
   Table,
@@ -15,17 +26,30 @@ import {
   Chip,
   CircularProgress,
   TextField,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
 } from '@mui/material';
 import {
   Logout as LogoutIcon,
   Info as InfoIcon,
 } from '@mui/icons-material';
 
-const ACTIVITY_THRESHOLD_MS = 100000;
-
 export default function RADashboard() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('All');
+  const [filterLag, setFilterLag] = useState('All');
+  const [filterUpdate, setFilterUpdate] = useState('All');
+  const [sortBy, setSortBy] = useState('name');
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -49,49 +73,36 @@ export default function RADashboard() {
     enabled: !!currentUser?.id,
   });
 
-  // Fetch constituencies, auto-refreshing every 10 seconds for live tracking!
+  // Fetch assigned constituencies with nested election data in a single query.
   const { data: assignments, isLoading } = useQuery({
     queryKey: ['ra-assignments', currentUser?.id],
     queryFn: async () => {
-      const { data: constData, error: constErr } = await supabase
+      const { data, error } = await supabase
         .from('constituencies')
         .select(`
           id, 
-          eci_name, 
           tool_name, 
           states(name),
-          assigned_ra_id
+          assigned_ra_id,
+          election_data(
+            constituency_id,
+            eci_round,
+            tool_round,
+            eci_round_updated_at,
+            tool_round_updated_at,
+            eci_updated_at
+          )
         `)
         .eq('assigned_ra_id', currentUser.id)
         .order('states(name)', { ascending: true })
-        .order('eci_name', { ascending: true });
+        .order('tool_name', { ascending: true, nullsFirst: false });
 
-      if (constErr) throw constErr;
-
-      // Get the constituency IDs we need
-      const constIds = constData?.map(c => c.id) || [];
-
-      // Separately fetch election data for these constituencies
-      const { data: electionData, error: electionErr } = await supabase
-        .from('election_data')
-        .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at')
-        .in('constituency_id', constIds);
-
-      if (electionErr) throw electionErr;
-
-      // Merge election data into constituencies
-      const electionMap = {};
-      electionData?.forEach(e => {
-        electionMap[e.constituency_id] = e;
-      });
-
-      return constData?.map(c => ({
-        ...c,
-        election_data: [electionMap[c.id]] || [{ eci_round: 0, tool_round: 0 }]
-      })) || [];
+      if (error) throw error;
+      return data || [];
     },
     enabled: !!currentUser?.id,
-    refetchInterval: 30000,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
   });
 
   // Fetch the RA's manager (TL)
@@ -125,11 +136,23 @@ export default function RADashboard() {
   // Real-time subscription for live updates on election_data
   const queryClient = useQueryClient();
   useEffect(() => {
+    if (!currentUser?.id) return undefined;
+
+    const scheduler = createBufferedQueryPatchScheduler(
+      queryClient,
+      ['ra-assignments', currentUser.id],
+      patchNestedElectionRows,
+    );
+
     const channel = supabase.channel('ra-election-updates')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'election_data' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['ra-assignments', currentUser?.id] });
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+        scheduler.push(payload);
       }).subscribe();
-    return () => supabase.removeChannel(channel);
+
+    return () => {
+      scheduler.dispose();
+      supabase.removeChannel(channel);
+    };
   }, [queryClient, currentUser?.id]);
 
   const handleLogout = async () => {
@@ -137,35 +160,83 @@ export default function RADashboard() {
     navigate('/login');
   };
 
-  // Search state for filtering assignments list
-  const [search, setSearch] = useState('');
-
   const filteredAssignments = useMemo(() => {
     if (!assignments) return [];
     const q = (search || '').trim().toLowerCase();
-    if (!q) return assignments;
-    return assignments.filter(a => {
-      const name = (a.eci_name || '').toLowerCase();
-      const state = (a.states?.name || '').toLowerCase();
-      return name.includes(q) || state.includes(q);
-    });
-  }, [assignments, search]);
+    let rows = assignments.map((assignment) => {
+      const election = assignment.election_data?.[0] || {};
+      const constituencyName = getConstituencyName(assignment);
+      const lagSeconds = getLagSeconds(election.eci_updated_at, now);
+      const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
+      const syncStatus = getSyncStatus(election.eci_round ?? 0, election.tool_round ?? 0);
 
-  const getSyncStatus = (eci, tool) => {
-    const diff = eci - tool;
-    if (eci === 0 && tool === 0) return { label: 'Not Started', styles: { backgroundColor: '#f3f4f6', color: '#6b7280' } };
-    if (diff > 0) return { label: `ECI +${diff}`, styles: { backgroundColor: '#fee2e2', color: '#991b1b' } };
-    if (diff < 0) return { label: `Tool +${Math.abs(diff)}`, styles: { backgroundColor: '#fef3c7', color: '#92400e' } };
-    return { label: 'In Sync', styles: { backgroundColor: '#d1fae5', color: '#059669' } };
+      return {
+        ...assignment,
+        constituencyName,
+        lagSeconds,
+        lagBucket: getLagBucket(lagSeconds),
+        hasEciUpdate: Boolean(election.eci_updated_at),
+        syncStatus,
+        activity,
+        election,
+      };
+    });
+
+    if (q) {
+      rows = rows.filter((assignment) => {
+        const name = assignment.constituencyName.toLowerCase();
+        const state = (assignment.states?.name || '').toLowerCase();
+        return name.includes(q) || state.includes(q);
+      });
+    }
+
+    if (filterStatus !== 'All') {
+      rows = rows.filter((assignment) => assignment.activity.status === filterStatus);
+    }
+
+    if (filterLag !== 'All') {
+      rows = rows.filter((assignment) => assignment.lagBucket === filterLag);
+    }
+
+    if (filterUpdate !== 'All') {
+      rows = rows.filter((assignment) => filterUpdate === 'Has Update' ? assignment.hasEciUpdate : !assignment.hasEciUpdate);
+    }
+
+    rows.sort((left, right) => {
+      if (sortBy === 'updated-desc') {
+        return getSortTimestamp(right.election.eci_updated_at) - getSortTimestamp(left.election.eci_updated_at);
+      }
+
+      if (sortBy === 'updated-asc') {
+        return getSortTimestamp(left.election.eci_updated_at) - getSortTimestamp(right.election.eci_updated_at);
+      }
+
+      if (sortBy === 'lag-desc') {
+        return (right.lagSeconds ?? -1) - (left.lagSeconds ?? -1);
+      }
+
+      if (sortBy === 'lag-asc') {
+        return (left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER);
+      }
+
+      return left.constituencyName.localeCompare(right.constituencyName);
+    });
+
+    return rows;
+  }, [assignments, filterLag, filterStatus, filterUpdate, now, search, sortBy]);
+
+  const getSyncStatusChip = (status) => {
+    if (status === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
+    if (status === 'Not Started') return { backgroundColor: '#f3f4f6', color: '#6b7280' };
+    if (status.startsWith('ECI +')) return { backgroundColor: '#fee2e2', color: '#991b1b' };
+    return { backgroundColor: '#fef3c7', color: '#92400e' };
   };
 
-  const getActivityStatus = (eciRoundUpdatedAt, toolRoundUpdatedAt) => {
-    const eciMs = eciRoundUpdatedAt ? new Date(eciRoundUpdatedAt).getTime() : null;
-    const toolMs = toolRoundUpdatedAt ? new Date(toolRoundUpdatedAt).getTime() : null;
-    return {
-      eciActive: !!eciMs && (Date.now() - eciMs <= ACTIVITY_THRESHOLD_MS),
-      toolActive: !!toolMs && (Date.now() - toolMs <= ACTIVITY_THRESHOLD_MS),
-    };
+  const getLagChip = (seconds) => {
+    if (seconds === null || seconds === undefined) return { backgroundColor: '#e2e8f0', color: '#64748b' };
+    if (seconds <= 60) return { backgroundColor: '#d1fae5', color: '#047857' };
+    if (seconds <= 300) return { backgroundColor: '#fef3c7', color: '#92400e' };
+    return { backgroundColor: '#fee2e2', color: '#991b1b' };
   };
 
   return (
@@ -294,6 +365,42 @@ export default function RADashboard() {
                 onChange={(e) => setSearch(e.target.value)}
                 sx={{ minWidth: 220 }}
               />
+              <FormControl size="small" sx={{ minWidth: 140 }}>
+                <InputLabel>Status</InputLabel>
+                <Select value={filterStatus} label="Status" onChange={(event) => setFilterStatus(event.target.value)}>
+                  <MenuItem value="All">All Statuses</MenuItem>
+                  <MenuItem value="Active">Active</MenuItem>
+                  <MenuItem value="Inactive">Inactive</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 140 }}>
+                <InputLabel>ECI Lag</InputLabel>
+                <Select value={filterLag} label="ECI Lag" onChange={(event) => setFilterLag(event.target.value)}>
+                  <MenuItem value="All">All Lags</MenuItem>
+                  <MenuItem value="Fresh">Fresh</MenuItem>
+                  <MenuItem value="Aging">Aging</MenuItem>
+                  <MenuItem value="Stale">Stale</MenuItem>
+                  <MenuItem value="Unknown">Unknown</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>ECI Update</InputLabel>
+                <Select value={filterUpdate} label="ECI Update" onChange={(event) => setFilterUpdate(event.target.value)}>
+                  <MenuItem value="All">All Updates</MenuItem>
+                  <MenuItem value="Has Update">Has Update</MenuItem>
+                  <MenuItem value="No Update">No Update</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 170 }}>
+                <InputLabel>Sort</InputLabel>
+                <Select value={sortBy} label="Sort" onChange={(event) => setSortBy(event.target.value)}>
+                  <MenuItem value="name">Constituency Name</MenuItem>
+                  <MenuItem value="updated-desc">Latest ECI Update</MenuItem>
+                  <MenuItem value="updated-asc">Oldest ECI Update</MenuItem>
+                  <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
+                  <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
+                </Select>
+              </FormControl>
               <Box sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -308,7 +415,7 @@ export default function RADashboard() {
                 color: '#0c4a6e'
               }}>
                 <InfoIcon sx={{ fontSize: '1rem' }} />
-                Auto-refreshing every 30s
+                Supabase realtime connected
               </Box>
             </Box>
           </Box>
@@ -373,14 +480,14 @@ export default function RADashboard() {
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                       ECI Last Updated
                     </TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      ECI Lag
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {filteredAssignments?.map((row) => {
-                    const data = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
-                    const status = getSyncStatus(data.eci_round, data.tool_round);
-                    const activity = getActivityStatus(data.eci_round_updated_at, data.tool_round_updated_at);
-
+                    const data = row.election || { eci_round: 0, tool_round: 0 };
 
                     return (
                       <TableRow
@@ -392,7 +499,7 @@ export default function RADashboard() {
                         }}
                       >
                         <TableCell sx={{ py: 1, fontWeight: 600, color: '#0f4c75' }}>
-                          {row.eci_name}
+                          {row.constituencyName}
                         </TableCell>
                         <TableCell sx={{ py: 1, color: '#64748b' }}>
                           {row.states?.name}
@@ -430,22 +537,38 @@ export default function RADashboard() {
                             borderRadius: '6px',
                             fontWeight: 700,
                             fontSize: '0.85rem',
-                            ...status.styles
+                            ...getSyncStatusChip(row.syncStatus)
                           }}>
-                            {status.label}
+                            {row.syncStatus}
                           </Box>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5 }}>
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: activity.eciActive ? '#10b981' : '#ef4444' }} />
+                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: row.activity.eciActive ? '#10b981' : '#ef4444' }} />
                               <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>ECI</Typography>
                             </Box>
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: activity.toolActive ? '#10b981' : '#ef4444' }} />
+                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: row.activity.toolActive ? '#10b981' : '#ef4444' }} />
                               <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
                             </Box>
                           </Box>
+                        </TableCell>
+                        <TableCell align="center" sx={{ py: 1 }}>
+                          <Typography variant="body2" sx={{ color: '#334155', fontSize: '0.82rem' }}>
+                            {formatTimestamp(data.eci_updated_at)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center" sx={{ py: 1 }}>
+                          <Chip
+                            label={formatLag(row.lagSeconds)}
+                            size="small"
+                            sx={{
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                              ...getLagChip(row.lagSeconds),
+                            }}
+                          />
                         </TableCell>
                       </TableRow>
                     );

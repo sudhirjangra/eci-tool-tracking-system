@@ -1,7 +1,18 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
+import {
+  getActivityFlags,
+  getConstituencyName,
+  getLagBucket,
+  getLagSeconds,
+  getSyncStatus,
+  formatLag,
+  formatTimestamp,
+  getSortTimestamp,
+} from '../../lib/electionMetrics';
 import {
   Box,
   Card,
@@ -32,8 +43,6 @@ import {
   FiberManualRecord as ActiveIcon,
   Error as ErrorIcon,
 } from '@mui/icons-material';
-
-const ACTIVITY_THRESHOLD_MS = 100000;
 
 export default function AdminLiveMonitor() {
   const navigate = useNavigate();
@@ -84,6 +93,9 @@ export default function AdminLiveMonitor() {
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterTL, setFilterTL] = useState('All');
   const [filterRA, setFilterRA] = useState('All');
+  const [filterLag, setFilterLag] = useState('All');
+  const [filterUpdate, setFilterUpdate] = useState('All');
+  const [sortBy, setSortBy] = useState('lag-desc');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
@@ -95,32 +107,28 @@ export default function AdminLiveMonitor() {
       const { data: constData, error: constErr } = await supabase
         .from('constituencies')
         .select(`
-          id, eci_name, states(name),
-          assigned_tl_id, assigned_ra_id
+          id,
+          tool_name,
+          states(name),
+          assigned_tl_id,
+          assigned_ra_id,
+          election_data(
+            constituency_id,
+            eci_round,
+            tool_round,
+            eci_round_updated_at,
+            tool_round_updated_at,
+            eci_updated_at
+          )
         `)
         .order('states(name)', { ascending: true })
-        .order('eci_name', { ascending: true });
+        .order('tool_name', { ascending: true, nullsFirst: false });
 
       if (constErr) throw constErr;
-
-      // Separately fetch all election data
-      const { data: electionData, error: electionErr } = await supabase
-        .from('election_data')
-        .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at');
-
-      if (electionErr) throw electionErr;
-
-      // Merge election data into constituencies
-      const electionMap = {};
-      electionData?.forEach(e => {
-        electionMap[e.constituency_id] = e;
-      });
-
-      return constData?.map(c => ({
-        ...c,
-        election_data: [electionMap[c.id]] || [{ eci_round: 0, tool_round: 0 }]
-      })) || [];
+      return constData || [];
     },
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
   });
 
   // 2. Fetch All User Names and Emails for Translation
@@ -133,6 +141,8 @@ export default function AdminLiveMonitor() {
       if (error) throw error;
       return data || [];
     },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   // Create a quick lookup dictionary for emails and names
@@ -144,27 +154,35 @@ export default function AdminLiveMonitor() {
 
   // 3. WebSockets for Live Updates
   useEffect(() => {
+    const scheduler = createBufferedQueryPatchScheduler(
+      queryClient,
+      ['admin-live-feed'],
+      patchNestedElectionRows,
+    );
+
     const channel = supabase.channel('live-election-updates')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'election_data' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['admin-live-feed'] });
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+        scheduler.push(payload);
       }).subscribe();
-    return () => supabase.removeChannel(channel);
+
+    return () => {
+      scheduler.dispose();
+      supabase.removeChannel(channel);
+    };
   }, [queryClient]);
 
-  // 4. Local Timer & Forced Data Refresh every 30 seconds
+  // 4. Local timer for relative lag and activity display.
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(Date.now());
-      // Refresh every 30 seconds for sure data from database
-      queryClient.invalidateQueries({ queryKey: ['admin-live-feed'] });
     }, 1000 * 30); // 30 seconds
     return () => clearInterval(timer);
-  }, [queryClient]);
+  }, []);
 
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterState, filterStatus, filterTL, filterRA, searchTerm]);
+  }, [filterLag, filterRA, filterState, filterStatus, filterTL, filterUpdate, searchTerm, sortBy]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
@@ -173,51 +191,84 @@ export default function AdminLiveMonitor() {
       const data = row.election_data?.[0];
       const eciRound = data?.eci_round || 0;
       const toolRound = data?.tool_round || 0;
-      const eciRoundUpdatedMillis = data?.eci_round_updated_at ? new Date(data.eci_round_updated_at).getTime() : null;
-      const toolRoundUpdatedMillis = data?.tool_round_updated_at ? new Date(data.tool_round_updated_at).getTime() : null;
-
-      const eciActive = !!eciRoundUpdatedMillis && (now - eciRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS);
-      const toolActive = !!toolRoundUpdatedMillis && (now - toolRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS);
-      const status = eciActive && toolActive ? 'Active' : 'Inactive';
+      const activity = getActivityFlags(data?.eci_round_updated_at, data?.tool_round_updated_at, now);
+      const eciLagSeconds = getLagSeconds(data?.eci_updated_at, now);
 
       const tlEmail = emailMap[row.assigned_tl_id]?.email || 'Unassigned';
       const tlName = emailMap[row.assigned_tl_id]?.name || 'Unassigned';
       const raEmail = emailMap[row.assigned_ra_id]?.email || 'Unassigned';
       const raName = emailMap[row.assigned_ra_id]?.name || 'Unassigned';
-      const syncDelta = eciRound - toolRound;
-      const syncStatus = eciRound === 0 && toolRound === 0
-        ? 'Not Started'
-        : syncDelta === 0
-          ? 'In Sync'
-          : syncDelta > 0
-            ? `ECI +${syncDelta}`
-            : `Tool +${Math.abs(syncDelta)}`;
 
       return {
         ...row,
+        constituencyName: getConstituencyName(row),
         eciRound,
         toolRound,
-        eciActive,
-        toolActive,
-        status,
+        eciActive: activity.eciActive,
+        toolActive: activity.toolActive,
+        status: activity.status,
         tlEmail,
         tlName,
         raEmail,
         raName,
-        syncStatus,
+        syncStatus: getSyncStatus(eciRound, toolRound),
+        eciLagSeconds,
+        lagBucket: getLagBucket(eciLagSeconds),
+        eciLastUpdatedAt: data?.eci_updated_at || null,
+        hasEciUpdate: Boolean(data?.eci_updated_at),
       };
     });
   }, [rawData, now, emailMap]);
 
   // 6. Apply Filters
-  const filteredData = processedData.filter(row => {
-    const matchesSearch = row.eci_name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesState = filterState === 'All' || row.states?.name === filterState;
-    const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
-    const matchesTL = filterTL === 'All' || row.assigned_tl_id === filterTL;
-    const matchesRA = filterRA === 'All' || row.assigned_ra_id === filterRA;
-    return matchesSearch && matchesState && matchesStatus && matchesTL && matchesRA;
-  });
+  const filteredData = useMemo(() => {
+    const query = searchTerm.toLowerCase();
+    const rows = processedData.filter((row) => {
+      const matchesSearch =
+        row.constituencyName.toLowerCase().includes(query) ||
+        (row.states?.name || '').toLowerCase().includes(query) ||
+        String(row.eci_id || '').includes(query) ||
+        row.tlName.toLowerCase().includes(query) ||
+        row.raName.toLowerCase().includes(query);
+      const matchesState = filterState === 'All' || row.states?.name === filterState;
+      const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
+      const matchesTL = filterTL === 'All' || row.assigned_tl_id === filterTL;
+      const matchesRA = filterRA === 'All' || row.assigned_ra_id === filterRA;
+      const matchesLag = filterLag === 'All' || row.lagBucket === filterLag;
+      const matchesUpdate =
+        filterUpdate === 'All' ||
+        (filterUpdate === 'Has Update' && row.hasEciUpdate) ||
+        (filterUpdate === 'No Update' && !row.hasEciUpdate);
+
+      return matchesSearch && matchesState && matchesStatus && matchesTL && matchesRA && matchesLag && matchesUpdate;
+    });
+
+    rows.sort((left, right) => {
+      if (sortBy === 'updated-desc') {
+        return getSortTimestamp(right.eciLastUpdatedAt) - getSortTimestamp(left.eciLastUpdatedAt);
+      }
+
+      if (sortBy === 'updated-asc') {
+        return getSortTimestamp(left.eciLastUpdatedAt) - getSortTimestamp(right.eciLastUpdatedAt);
+      }
+
+      if (sortBy === 'name') {
+        return left.constituencyName.localeCompare(right.constituencyName);
+      }
+
+      if (sortBy === 'status') {
+        return left.status.localeCompare(right.status);
+      }
+
+      if (sortBy === 'lag-asc') {
+        return (left.eciLagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.eciLagSeconds ?? Number.MAX_SAFE_INTEGER);
+      }
+
+      return (right.eciLagSeconds ?? -1) - (left.eciLagSeconds ?? -1);
+    });
+
+    return rows;
+  }, [filterLag, filterRA, filterState, filterStatus, filterTL, filterUpdate, processedData, searchTerm, sortBy]);
 
   const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
   
@@ -266,25 +317,11 @@ export default function AdminLiveMonitor() {
     setPage(0);
   };
 
-  const formatLag = (seconds) => {
-    if (seconds === null) return '--';
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
-  };
-
   const getLagPalette = (seconds) => {
-    if (seconds === null) return { bgcolor: '#e2e8f0', color: '#64748b' };
+    if (seconds === null || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
     if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
-    if (seconds <= 120) return { bgcolor: '#fef3c7', color: '#92400e' };
+    if (seconds <= 300) return { bgcolor: '#fef3c7', color: '#92400e' };
     return { bgcolor: '#fee2e2', color: '#991b1b' };
-  };
-
-  const formatTimestamp = (ts) => {
-    if (!ts) return '--';
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return '--';
-    return d.toLocaleString();
   };
 
   const getSyncChipStyles = (syncStatus) => {
@@ -299,7 +336,7 @@ export default function AdminLiveMonitor() {
       {/* Middle Section - Filters */}
       <Box sx={{ p: 0.5, px: 1, bgcolor: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 1.25, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <TextField
-          placeholder="Search constituencies..."
+          placeholder="Search constituency, state, ECI ID, TL, or RA..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           InputProps={{
@@ -351,8 +388,62 @@ export default function AdminLiveMonitor() {
             <MenuItem value="All">All Statuses</MenuItem>
             <MenuItem value="Active">Active (&le;100s)</MenuItem>
             <MenuItem value="Inactive">Inactive (&gt;100s)</MenuItem>
-            <MenuItem value="Active">Active (&lt;1m)</MenuItem>
-            <MenuItem value="Inactive">Inactive (&gt;1m)</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 140 }} size="small">
+          <InputLabel>ECI Lag</InputLabel>
+          <Select
+            value={filterLag}
+            label="ECI Lag"
+            onChange={(e) => setFilterLag(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Lags</MenuItem>
+            <MenuItem value="Fresh">Fresh</MenuItem>
+            <MenuItem value="Aging">Aging</MenuItem>
+            <MenuItem value="Stale">Stale</MenuItem>
+            <MenuItem value="Unknown">Unknown</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 150 }} size="small">
+          <InputLabel>ECI Update</InputLabel>
+          <Select
+            value={filterUpdate}
+            label="ECI Update"
+            onChange={(e) => setFilterUpdate(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Updates</MenuItem>
+            <MenuItem value="Has Update">Has Update</MenuItem>
+            <MenuItem value="No Update">No Update</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 160 }} size="small">
+          <InputLabel>Sort</InputLabel>
+          <Select
+            value={sortBy}
+            label="Sort"
+            onChange={(e) => setSortBy(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
+            <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
+            <MenuItem value="updated-desc">Latest ECI Update</MenuItem>
+            <MenuItem value="updated-asc">Oldest ECI Update</MenuItem>
+            <MenuItem value="name">Constituency Name</MenuItem>
+            <MenuItem value="status">Status</MenuItem>
           </Select>
         </FormControl>
 
@@ -422,13 +513,14 @@ export default function AdminLiveMonitor() {
               <Table stickyHeader>
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI / Tool</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Activity</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Constituency</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>State</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Tool Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Sync Status</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Last Updated</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Lag</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Team Lead</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Research Analyst</TableCell>
                   </TableRow>
@@ -460,13 +552,12 @@ export default function AdminLiveMonitor() {
                           color: row.status === 'Active' ? '#059669' : '#991b1b',
                           border: row.status === 'Active' ? '1px solid #6ee7b7' : '1px solid #fecaca'
                         }}>
-                          {row.statusIcon}
                           {row.status}
                         </Box>
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>
                         <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f4c75', fontSize: '0.9rem' }}>
-                          {row.eci_name}
+                          {row.constituencyName}
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>
@@ -521,16 +612,17 @@ export default function AdminLiveMonitor() {
                           {formatTimestamp(row.eciLastUpdatedAt)}
                         </Typography>
                       </TableCell>
-                      {/* <TableCell align="right" sx={{ py: 2 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#475569' }}>
-                          ECI {formatLag(row.eciLagSeconds)} | TOOL {formatLag(row.toolLagSeconds)}
-                        </Typography>
-                      </TableCell> */}
-                      {/* <TableCell align="right" sx={{ py: 2 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#475569' }}>
-                          ECI {formatLag(row.eciLagSeconds)} | TOOL {formatLag(row.toolLagSeconds)}
-                        </Typography>
-                      </TableCell> */}
+                      <TableCell align="center" sx={{ py: 1 }}>
+                        <Chip
+                          label={formatLag(row.eciLagSeconds)}
+                          size="small"
+                          sx={{
+                            fontWeight: 700,
+                            fontFamily: 'monospace',
+                            ...getLagPalette(row.eciLagSeconds),
+                          }}
+                        />
+                      </TableCell>
                       <TableCell sx={{ py: 2 }}>
                         {row.tlEmail === 'Unassigned' ? (
                           <Chip label="—" size="small" variant="outlined" />

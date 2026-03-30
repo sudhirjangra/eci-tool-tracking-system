@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { formatLag, formatTimestamp, getConstituencyName, getLagSeconds } from '../../lib/electionMetrics';
 import {
   Box,
   TextField,
@@ -33,33 +34,23 @@ export default function ConstituencyList() {
         .select(`
           id,
           eci_id,
-          eci_name,
           tool_name,
           states (name),
           assigned_tl_id,
-          assigned_ra_id
+          assigned_ra_id,
+          election_data(
+            constituency_id,
+            eci_round,
+            tool_round,
+            eci_updated_at
+          )
         `)
-        .order('states(name),eci_name', { ascending: true });
+        .order('states(name)', { ascending: true })
+        .order('tool_name', { ascending: true, nullsFirst: false });
 
       if (constErr) throw constErr;
 
-      // Separately fetch all election data
-      const { data: electionData, error: electionErr } = await supabase
-        .from('election_data')
-        .select('constituency_id, eci_round, tool_round, eci_round_updated_at, tool_round_updated_at');
-
-      if (electionErr) throw electionErr;
-
-      // Merge election data into constituencies
-      const electionMap = {};
-      electionData?.forEach(e => {
-        electionMap[e.constituency_id] = e;
-      });
-
-      return constData?.map(c => ({
-        ...c,
-        election_data: [electionMap[c.id]] || [{ eci_round: 0, tool_round: 0 }]
-      })) || [];
+      return constData || [];
     },
   });
 
@@ -73,7 +64,6 @@ export default function ConstituencyList() {
 
   // Filter based on search input (checks both ECI and Tool names)
   const filteredData = constituencies?.filter(c => 
-    c.eci_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.tool_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.states?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.eci_id.toString().includes(searchTerm)
@@ -189,16 +179,19 @@ export default function ConstituencyList() {
                   ECI ID
                 </TableCell>
                 <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                  ECI Name
-                </TableCell>
-                <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                  Tool Name
+                  Constituency
                 </TableCell>
                 <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                   ECI Round
                 </TableCell>
                 <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                   Tool Round
+                </TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                  ECI Last Updated
+                </TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                  ECI Lag
                 </TableCell>
                 <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                   Team Lead
@@ -211,6 +204,7 @@ export default function ConstituencyList() {
             <TableBody>
               {filteredData?.map((row) => {
                 const electionData = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
+                const lagSeconds = getLagSeconds(electionData.eci_updated_at);
                 return (
                   <TableRow
                     key={row.id}
@@ -242,12 +236,7 @@ export default function ConstituencyList() {
                     </TableCell>
                     <TableCell sx={{ py: 2 }}>
                       <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>
-                        {row.eci_name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ py: 2 }}>
-                      <Typography sx={{ fontSize: '0.85rem', color: '#64748b', fontFamily: 'monospace' }}>
-                        {row.tool_name || '—'}
+                        {getConstituencyName(row)}
                       </Typography>
                     </TableCell>
                     <TableCell align="center" sx={{ py: 2 }}>
@@ -271,6 +260,12 @@ export default function ConstituencyList() {
                           fontWeight: 700
                         }}
                       />
+                    </TableCell>
+                    <TableCell align="center" sx={{ py: 2, fontSize: '0.85rem', color: '#475569' }}>
+                      {formatTimestamp(electionData.eci_updated_at)}
+                    </TableCell>
+                    <TableCell align="center" sx={{ py: 2, fontSize: '0.85rem', fontFamily: 'monospace', color: '#475569' }}>
+                      {formatLag(lagSeconds)}
                     </TableCell>
                     <TableCell align="center" sx={{ py: 2 }}>
                       {row.assigned_tl_id ? (

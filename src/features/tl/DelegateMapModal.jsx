@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { getConstituencyName } from '../../lib/electionMetrics';
 import {
   Dialog,
   DialogTitle,
@@ -40,9 +41,10 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
       if (!tlId) return [];
       const { data, error } = await supabase
         .from('constituencies')
-        .select(`id, eci_id, eci_name, tool_name, states(name), assigned_ra_id`)
+        .select(`id, eci_id, tool_name, states(name), assigned_ra_id`)
         .eq('assigned_tl_id', tlId)
-        .order('states(name),eci_name', { ascending: true });
+        .order('states(name)', { ascending: true })
+        .order('tool_name', { ascending: true, nullsFirst: false });
 
       if (error) throw error;
       return data;
@@ -162,7 +164,6 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
     ? constituencies?.filter(c => c.states?.name === selectedState)
     : constituencies || []
   ).filter(c => 
-    c.eci_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.tool_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.eci_id.toString().includes(searchTerm)
   ) || [];
@@ -338,8 +339,7 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                         />
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>ECI ID</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>ECI Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Tool Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Constituency</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Assigned RA</TableCell>
                     </TableRow>
                   </TableHead>
@@ -366,8 +366,7 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                             />
                           </TableCell>
                           <TableCell sx={{ fontWeight: 700, color: '#00a86b' }}>{c.eci_id}</TableCell>
-                          <TableCell>{c.eci_name}</TableCell>
-                          <TableCell>{c.tool_name || '—'}</TableCell>
+                          <TableCell>{getConstituencyName(c)}</TableCell>
                           <TableCell>
                             {c.assigned_ra_id
                               ? c.assigned_ra_id === ra.id

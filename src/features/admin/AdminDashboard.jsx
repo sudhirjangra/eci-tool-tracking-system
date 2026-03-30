@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { ACTIVITY_THRESHOLD_MS, toMillis } from '../../lib/electionMetrics';
+import { createBufferedQueryPatchScheduler, patchNestedElectionById } from '../../lib/electionRealtime';
 import AdminLiveMonitor from './AdminLiveMonitor';
 import ViewUserMapModal from './ViewUserMapModal';
 import ExpandableRATableRow from './ExpandableRATableRow';
@@ -34,6 +36,7 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedTLs, setExpandedTLs] = useState(new Set());
   const [now, setNow] = useState(Date.now());
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000);
@@ -74,29 +77,38 @@ export default function AdminDashboard() {
   const { data: liveStatsData } = useQuery({
     queryKey: ['admin-live-nav-stats'],
     queryFn: async () => {
-      const { data: constData, error: constErr } = await supabase
+      const { data, error } = await supabase
         .from('constituencies')
-        .select('id');
-      if (constErr) throw constErr;
+        .select('id, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at)');
+      if (error) throw error;
 
-      const { data: electionData, error: electionErr } = await supabase
-        .from('election_data')
-        .select('constituency_id, eci_round_updated_at, tool_round_updated_at');
-      if (electionErr) throw electionErr;
-
-      const map = {};
-      (electionData || []).forEach((r) => {
-        map[r.constituency_id] = r;
-      });
-
-      return (constData || []).map((c) => ({
-        id: c.id,
-        election: map[c.id] || null,
+      return (data || []).map((row) => ({
+        id: row.id,
+        election: row.election_data?.[0] || null,
       }));
     },
-    refetchInterval: 30000,
-    staleTime: 15000,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
   });
+
+  useEffect(() => {
+    const scheduler = createBufferedQueryPatchScheduler(
+      queryClient,
+      ['admin-live-nav-stats'],
+      (previous, payload) => patchNestedElectionById(previous, payload),
+    );
+
+    const channel = supabase.channel('admin-nav-election-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+        scheduler.push(payload);
+      })
+      .subscribe();
+
+    return () => {
+      scheduler.dispose();
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const navStats = useMemo(() => {
     const rows = liveStatsData || [];
@@ -104,15 +116,15 @@ export default function AdminDashboard() {
     let inactive = 0;
 
     rows.forEach((row) => {
-      const eciTs = row.election?.eci_round_updated_at ? new Date(row.election.eci_round_updated_at).getTime() : null;
-      const toolTs = row.election?.tool_round_updated_at ? new Date(row.election.tool_round_updated_at).getTime() : null;
+      const eciTs = toMillis(row.election?.eci_round_updated_at);
+      const toolTs = toMillis(row.election?.tool_round_updated_at);
       if (!eciTs && !toolTs) {
         inactive += 1;
         return;
       }
 
       const latest = Math.max(eciTs || 0, toolTs || 0);
-      if (latest && now - latest <= 100000) {
+      if (latest && now - latest <= ACTIVITY_THRESHOLD_MS) {
         active += 1;
       } else {
         inactive += 1;

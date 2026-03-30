@@ -3,6 +3,7 @@ import { TableRow, TableCell, IconButton, Collapse, Box, Typography, CircularPro
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { supabase } from '../../lib/supabase';
+import { getConstituencyName } from '../../lib/electionMetrics';
 
 export default function ExpandableRATableRow({ ra, managerEmail }) {
   const [open, setOpen] = useState(false);
@@ -14,7 +15,7 @@ export default function ExpandableRATableRow({ ra, managerEmail }) {
       setLoading(true);
       supabase
         .from('constituencies')
-        .select('eci_name, states(name)')
+        .select('tool_name, states(name)')
         .eq('assigned_ra_id', ra.id)
         .then(({ data }) => {
           setConstituencies(data || []);
@@ -49,7 +50,7 @@ export default function ExpandableRATableRow({ ra, managerEmail }) {
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                   {constituencies.map((c, idx) => (
                     <li key={idx}>
-                      {c.eci_name} {c.states?.name ? `(${c.states.name})` : ''}
+                      {getConstituencyName(c)} {c.states?.name ? `(${c.states.name})` : ''}
                     </li>
                   ))}
                 </ul>
