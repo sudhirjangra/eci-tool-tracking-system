@@ -13,7 +13,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   realtime: {
     params: {
-      eventsPerSecond: 10, // Prevent excessive events
+      eventsPerSecond: 60, // Support higher update throughput under concurrent load
     }
   }
 });
@@ -26,7 +26,7 @@ export const supabaseAdminAuth = createClient(supabaseUrl, supabaseAnonKey, {
   },
   realtime: {
     params: {
-      eventsPerSecond: 10,
+      eventsPerSecond: 60,
     }
   }
 });

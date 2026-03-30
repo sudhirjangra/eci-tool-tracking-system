@@ -56,46 +56,40 @@ export function patchNestedElectionRows(rows, payload) {
   const record = getPayloadRecord(payload);
   if (!record || !Array.isArray(rows)) return rows;
 
-  let changed = false;
-  const nextRows = rows.map((row) => {
-    if (row.id !== record.constituency_id) {
-      return row;
-    }
+  const index = rows.findIndex((row) => row.id === record.constituency_id);
+  if (index === -1) return rows;
 
-    changed = true;
-    return {
-      ...row,
-      election_data: [
-        {
-          ...(row.election_data?.[0] || {}),
-          ...record,
-        },
-      ],
-    };
-  });
+  const nextRows = [...rows];
+  const existing = nextRows[index];
+  nextRows[index] = {
+    ...existing,
+    election_data: [
+      {
+        ...(existing.election_data?.[0] || {}),
+        ...record,
+      },
+    ],
+  };
 
-  return changed ? nextRows : rows;
+  return nextRows;
 }
 
 export function patchNestedElectionById(rows, payload, fieldName = 'election') {
   const record = getPayloadRecord(payload);
   if (!record || !Array.isArray(rows)) return rows;
 
-  let changed = false;
-  const nextRows = rows.map((row) => {
-    if (row.id !== record.constituency_id) {
-      return row;
-    }
+  const index = rows.findIndex((row) => row.id === record.constituency_id);
+  if (index === -1) return rows;
 
-    changed = true;
-    return {
-      ...row,
-      [fieldName]: {
-        ...(row[fieldName] || {}),
-        ...record,
-      },
-    };
-  });
+  const nextRows = [...rows];
+  const existing = nextRows[index];
+  nextRows[index] = {
+    ...existing,
+    [fieldName]: {
+      ...(existing[fieldName] || {}),
+      ...record,
+    },
+  };
 
-  return changed ? nextRows : rows;
+  return nextRows;
 }

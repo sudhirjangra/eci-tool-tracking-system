@@ -66,11 +66,10 @@ export default function TLDashboard() {
   const [searchRA, setSearchRA] = useState('');
   const [filterRA, setFilterRA] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [filterLag, setFilterLag] = useState('');
-  const [filterUpdate, setFilterUpdate] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [mapSearch, setMapSearch] = useState('');
   const [mapState, setMapState] = useState('');
+  const [mapRA, setMapRA] = useState('All');
   const [mapStatus, setMapStatus] = useState('All');
   const [mapSyncStatus, setMapSyncStatus] = useState('All');
   const [mapLag, setMapLag] = useState('');
@@ -137,8 +136,12 @@ export default function TLDashboard() {
     enabled: !!currentUser?.id,
     staleTime: 30000,
     gcTime: 60 * 60 * 1000,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
   });
+
+  const trackedConstituencyIds = useMemo(() => {
+    return new Set((myConstituencies || []).map((row) => row.id));
+  }, [myConstituencies]);
 
   // Fetch the RAs managed by this TL
   const { data: myRAs, refetch: refetchRAs } = useQuery({
@@ -165,6 +168,10 @@ export default function TLDashboard() {
     const channelName = `tl-election-${currentUser.id}-${Date.now()}`;
     const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+        const constituencyId = payload?.new?.constituency_id || payload?.old?.constituency_id;
+        if (!constituencyId || !trackedConstituencyIds.has(constituencyId)) {
+          return;
+        }
         scheduler.push(payload);
       })
       .subscribe((status, err) => {
@@ -181,7 +188,7 @@ export default function TLDashboard() {
       scheduler.dispose();
       supabase.removeChannel(channel);
     };
-  }, [queryClient, currentUser?.id]);
+  }, [queryClient, currentUser?.id, trackedConstituencyIds]);
 
   const stateOptions = useMemo(() => {
     return [...new Set((myConstituencies || []).map((item) => item.states?.name).filter(Boolean))].sort();
@@ -213,12 +220,20 @@ export default function TLDashboard() {
         (row.states?.name || '').toLowerCase().includes(query) ||
         String(row.eci_id || '').includes(query);
       const matchesState = !mapState || row.states?.name === mapState;
+      const matchesRA =
+        mapRA === 'All' ||
+        (mapRA === 'Unassigned' && !row.assigned_ra_id) ||
+        row.assigned_ra_id === mapRA;
       const matchesStatus = mapStatus === 'All' || row.status === mapStatus;
-      const matchesSyncStatus = mapSyncStatus === 'All' || row.syncStatus === mapSyncStatus;
+      const matchesSyncStatus =
+        mapSyncStatus === 'All' ||
+        (mapSyncStatus === 'ECI Ahead' && row.syncStatus.startsWith('ECI +')) ||
+        (mapSyncStatus === 'Tool Ahead' && row.syncStatus.startsWith('Tool +')) ||
+        row.syncStatus === mapSyncStatus;
       const matchesLag = !mapLag || row.lagBucket === mapLag;
       const matchesUpdate = !mapUpdate || (mapUpdate === 'has-update' ? row.hasEciUpdate : !row.hasEciUpdate);
 
-      return matchesSearch && matchesState && matchesStatus && matchesSyncStatus && matchesLag && matchesUpdate;
+      return matchesSearch && matchesState && matchesRA && matchesStatus && matchesSyncStatus && matchesLag && matchesUpdate;
     });
 
     rows.sort((left, right) => {
@@ -242,7 +257,7 @@ export default function TLDashboard() {
     });
 
     return rows;
-  }, [mapLag, mapSearch, mapSortBy, mapState, mapStatus, mapSyncStatus, mapUpdate, myConstituencies, now]);
+  }, [mapLag, mapRA, mapSearch, mapSortBy, mapState, mapStatus, mapSyncStatus, mapUpdate, myConstituencies, now]);
 
   const raOptions = useMemo(() => {
     return (myRAs || []).map((ra) => ({
@@ -325,14 +340,6 @@ export default function TLDashboard() {
       rows = rows.filter(ra => ra.raStatus === filterStatus);
     }
 
-    if (filterLag) {
-      rows = rows.filter((ra) => ra.territories.some((territory) => territory.lagBucket === filterLag));
-    }
-
-    if (filterUpdate) {
-      rows = rows.filter((ra) => ra.territories.some((territory) => filterUpdate === 'has-update' ? territory.hasEciUpdate : !territory.hasEciUpdate));
-    }
-
     // Apply sorting
     if (sortBy === 'name') {
       rows.sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
@@ -352,7 +359,7 @@ export default function TLDashboard() {
     }
 
     return rows;
-  }, [myRAs, myConstituencies, searchRA, filterRA, filterStatus, filterLag, filterUpdate, sortBy, now]);
+  }, [myRAs, myConstituencies, searchRA, filterRA, filterStatus, sortBy, now]);
 
   const getLagPalette = (seconds) => {
     if (seconds === null || seconds === '-' || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
@@ -547,6 +554,25 @@ export default function TLDashboard() {
               </Select>
               <Select
                 displayEmpty
+                value={mapRA}
+                onChange={(event) => setMapRA(event.target.value)}
+                size="small"
+                sx={{ minWidth: 220, background: '#fff' }}
+                renderValue={(selected) => {
+                  if (selected === 'All') return 'All RAs';
+                  if (selected === 'Unassigned') return 'Unassigned';
+                  const found = raOptions.find((r) => r.id === selected);
+                  return found?.label || 'All RAs';
+                }}
+              >
+                <MenuItem value="All"><em>All RAs</em></MenuItem>
+                <MenuItem value="Unassigned"><em>Unassigned</em></MenuItem>
+                {raOptions.map((ra) => (
+                  <MenuItem key={ra.id} value={ra.id}>{ra.label}</MenuItem>
+                ))}
+              </Select>
+              <Select
+                displayEmpty
                 value={mapStatus}
                 onChange={(event) => setMapStatus(event.target.value)}
                 size="small"
@@ -554,8 +580,8 @@ export default function TLDashboard() {
                 renderValue={(selected) => selected || 'Activity'}
               >
                 <MenuItem value="All"><em>All Activity</em></MenuItem>
-                <MenuItem value="Active">Active (&le;100s)</MenuItem>
-                <MenuItem value="Inactive">Inactive (&gt;100s)</MenuItem>
+                <MenuItem value="Active">Active (&lt;1 min)</MenuItem>
+                <MenuItem value="Inactive">Inactive (&ge;1 min)</MenuItem>
               </Select>
               <Select
                 displayEmpty
@@ -568,8 +594,8 @@ export default function TLDashboard() {
                 <MenuItem value="All"><em>All Sync</em></MenuItem>
                 <MenuItem value="In Sync">In Sync ✓</MenuItem>
                 <MenuItem value="Not Started">Not Started</MenuItem>
-                <MenuItem value="ECI +1">ECI Ahead</MenuItem>
-                <MenuItem value="Tool +1">Tool Ahead</MenuItem>
+                <MenuItem value="ECI Ahead">ECI Ahead</MenuItem>
+                <MenuItem value="Tool Ahead">Tool Ahead</MenuItem>
               </Select>
               <Select
                 displayEmpty
@@ -879,35 +905,6 @@ export default function TLDashboard() {
                 <MenuItem value="Active">Active</MenuItem>
                 <MenuItem value="Inactive">Inactive</MenuItem>
                 <MenuItem value="No Data">No Data</MenuItem>
-              </Select>
-              <Select
-                displayEmpty
-                value={filterLag}
-                onChange={e => setFilterLag(e.target.value)}
-                size="small"
-                sx={{ minWidth: 160, background: '#fff' }}
-                renderValue={selected => selected || 'Filter by ECI Lag'}
-              >
-                <MenuItem value=""><em>All ECI Lag</em></MenuItem>
-                <MenuItem value="Fresh">Fresh</MenuItem>
-                <MenuItem value="Aging">Aging</MenuItem>
-                <MenuItem value="Stale">Stale</MenuItem>
-                <MenuItem value="Unknown">Unknown</MenuItem>
-              </Select>
-              <Select
-                displayEmpty
-                value={filterUpdate}
-                onChange={e => setFilterUpdate(e.target.value)}
-                size="small"
-                sx={{ minWidth: 170, background: '#fff' }}
-                renderValue={selected => {
-                  if (!selected) return 'Filter by ECI Update';
-                  return selected === 'has-update' ? 'Has Update' : 'No Update';
-                }}
-              >
-                <MenuItem value=""><em>All Updates</em></MenuItem>
-                <MenuItem value="has-update">Has Update</MenuItem>
-                <MenuItem value="no-update">No Update</MenuItem>
               </Select>
               <Select
                 displayEmpty

@@ -91,9 +91,8 @@ export default function AdminLiveMonitor() {
   const [now, setNow] = useState(Date.now());
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [filterSyncStatus, setFilterSyncStatus] = useState('All');
-  const [filterLagBucket, setFilterLagBucket] = useState('All');
-  const [filterAssignment, setFilterAssignment] = useState('All');
+  const [filterTL, setFilterTL] = useState('All');
+  const [filterRA, setFilterRA] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
@@ -130,7 +129,7 @@ export default function AdminLiveMonitor() {
     },
     staleTime: 30000, // Refetch every 30 seconds as fallback
     gcTime: 60 * 60 * 1000,
-    refetchInterval: 60000, // Actively refetch every 60 seconds
+    refetchInterval: 30000, // Actively refetch every 30 seconds
   });
 
   // 2. Fetch All User Names and Emails for Translation
@@ -195,7 +194,7 @@ export default function AdminLiveMonitor() {
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterState, filterStatus, filterSyncStatus, filterLagBucket, filterAssignment, searchTerm, sortBy]);
+  }, [filterState, filterStatus, filterTL, filterRA, searchTerm, sortBy]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
@@ -240,18 +239,16 @@ export default function AdminLiveMonitor() {
       const matchesSearch =
         row.constituencyName.toLowerCase().includes(query) ||
         (row.states?.name || '').toLowerCase().includes(query) ||
-        String(row.eci_id || '').includes(query);
+        String(row.eci_id || '').includes(query) ||
+        (row.tlName || '').toLowerCase().includes(query) ||
+        (row.raName || '').toLowerCase().includes(query);
       
       const matchesState = filterState === 'All' || row.states?.name === filterState;
       const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
-      const matchesSyncStatus = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
-      const matchesLagBucket = filterLagBucket === 'All' || row.lagBucket === filterLagBucket;
-      const matchesAssignment = 
-        filterAssignment === 'All' ||
-        (filterAssignment === 'Assigned' && (row.assigned_tl_id || row.assigned_ra_id)) ||
-        (filterAssignment === 'Unassigned' && (!row.assigned_tl_id && !row.assigned_ra_id));
+      const matchesTL = filterTL === 'All' || row.tlEmail === filterTL;
+      const matchesRA = filterRA === 'All' || row.raEmail === filterRA;
 
-      return matchesSearch && matchesState && matchesStatus && matchesSyncStatus && matchesLagBucket && matchesAssignment;
+      return matchesSearch && matchesState && matchesStatus && matchesTL && matchesRA;
     });
 
     rows.sort((left, right) => {
@@ -279,9 +276,11 @@ export default function AdminLiveMonitor() {
     });
 
     return rows;
-  }, [filterState, filterStatus, filterSyncStatus, filterLagBucket, filterAssignment, processedData, searchTerm, sortBy]);
+  }, [filterState, filterStatus, filterTL, filterRA, processedData, searchTerm, sortBy]);
 
   const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
+  const uniqueTLs = [...new Set(processedData.map((row) => row.tlEmail).filter((email) => email && email !== 'Unassigned'))].sort();
+  const uniqueRAs = [...new Set(processedData.map((row) => row.raEmail).filter((email) => email && email !== 'Unassigned'))].sort();
   
   // Pagination for table
   const paginatedData = useMemo(() => {
@@ -366,63 +365,44 @@ export default function AdminLiveMonitor() {
             }}
           >
             <MenuItem value="All">All Statuses</MenuItem>
-            <MenuItem value="Active">Active (&le;100s)</MenuItem>
-            <MenuItem value="Inactive">Inactive (&gt;100s)</MenuItem>
+            <MenuItem value="Active">Active (&lt;1 min)</MenuItem>
+            <MenuItem value="Inactive">Inactive (&ge;1 min)</MenuItem>
           </Select>
         </FormControl>
 
         <FormControl sx={{ minWidth: 160 }} size="small">
-          <InputLabel>Sync Status</InputLabel>
+          <InputLabel>Team Lead</InputLabel>
           <Select
-            value={filterSyncStatus}
-            label="Sync Status"
-            onChange={(e) => setFilterSyncStatus(e.target.value)}
+            value={filterTL}
+            label="Team Lead"
+            onChange={(e) => setFilterTL(e.target.value)}
             sx={{
               bgcolor: '#f8fafc',
               borderRadius: '8px'
             }}
           >
-            <MenuItem value="All">All Sync Status</MenuItem>
-            <MenuItem value="In Sync">In Sync ✓</MenuItem>
-            <MenuItem value="Not Started">Not Started</MenuItem>
-            <MenuItem value="ECI +1">ECI Ahead</MenuItem>
-            <MenuItem value="Tool +1">Tool Ahead</MenuItem>
+            <MenuItem value="All">All Team Leads</MenuItem>
+            {uniqueTLs.map((tlEmail) => (
+              <MenuItem key={tlEmail} value={tlEmail}>{tlEmail}</MenuItem>
+            ))}
           </Select>
         </FormControl>
 
-        <FormControl sx={{ minWidth: 140 }} size="small">
-          <InputLabel>ECI Lag</InputLabel>
+        <FormControl sx={{ minWidth: 180 }} size="small">
+          <InputLabel>Research Analyst</InputLabel>
           <Select
-            value={filterLagBucket}
-            label="ECI Lag"
-            onChange={(e) => setFilterLagBucket(e.target.value)}
+            value={filterRA}
+            label="Research Analyst"
+            onChange={(e) => setFilterRA(e.target.value)}
             sx={{
               bgcolor: '#f8fafc',
               borderRadius: '8px'
             }}
           >
-            <MenuItem value="All">All Lag</MenuItem>
-            <MenuItem value="Fresh">&lt;1 min (Fresh)</MenuItem>
-            <MenuItem value="Aging">1-5 min (Aging)</MenuItem>
-            <MenuItem value="Stale">&gt;5 min (Stale)</MenuItem>
-            <MenuItem value="Unknown">No Data</MenuItem>
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 140 }} size="small">
-          <InputLabel>Assignment</InputLabel>
-          <Select
-            value={filterAssignment}
-            label="Assignment"
-            onChange={(e) => setFilterAssignment(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
-          >
-            <MenuItem value="All">All Assignments</MenuItem>
-            <MenuItem value="Assigned">Assigned ✓</MenuItem>
-            <MenuItem value="Unassigned">Unassigned ⚠</MenuItem>
+            <MenuItem value="All">All Research Analysts</MenuItem>
+            {uniqueRAs.map((raEmail) => (
+              <MenuItem key={raEmail} value={raEmail}>{raEmail}</MenuItem>
+            ))}
           </Select>
         </FormControl>
 

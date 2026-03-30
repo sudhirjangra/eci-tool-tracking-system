@@ -40,10 +40,8 @@ export default function RADashboard() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
   const [search, setSearch] = useState('');
+  const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [filterSyncStatus, setFilterSyncStatus] = useState('All');
-  const [filterLag, setFilterLag] = useState('All');
-  const [filterUpdate, setFilterUpdate] = useState('All');
   const [sortBy, setSortBy] = useState('name');
   const [now, setNow] = useState(Date.now());
 
@@ -106,8 +104,12 @@ export default function RADashboard() {
     enabled: !!currentUser?.id,
     staleTime: 30000,
     gcTime: 60 * 60 * 1000,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
   });
+
+  const trackedConstituencyIds = useMemo(() => {
+    return new Set((assignments || []).map((row) => row.id));
+  }, [assignments]);
 
   // Fetch the RA's manager (TL)
   const { data: tlInfo } = useQuery({
@@ -152,6 +154,10 @@ export default function RADashboard() {
     const channelName = `ra-election-${currentUser.id}-${Date.now()}`;
     const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+        const constituencyId = payload?.new?.constituency_id || payload?.old?.constituency_id;
+        if (!constituencyId || !trackedConstituencyIds.has(constituencyId)) {
+          return;
+        }
         scheduler.push(payload);
       })
       .subscribe((status, err) => {
@@ -168,7 +174,7 @@ export default function RADashboard() {
       scheduler.dispose();
       supabase.removeChannel(channel);
     };
-  }, [queryClient, currentUser?.id]);
+  }, [queryClient, currentUser?.id, trackedConstituencyIds]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -205,20 +211,12 @@ export default function RADashboard() {
       });
     }
 
+    if (filterState !== 'All') {
+      rows = rows.filter((assignment) => assignment.states?.name === filterState);
+    }
+
     if (filterStatus !== 'All') {
       rows = rows.filter((assignment) => assignment.activity.status === filterStatus);
-    }
-
-    if (filterSyncStatus !== 'All') {
-      rows = rows.filter((assignment) => assignment.syncStatus === filterSyncStatus);
-    }
-
-    if (filterLag !== 'All') {
-      rows = rows.filter((assignment) => assignment.lagBucket === filterLag);
-    }
-
-    if (filterUpdate !== 'All') {
-      rows = rows.filter((assignment) => filterUpdate === 'Has Update' ? assignment.hasEciUpdate : !assignment.hasEciUpdate);
     }
 
     rows.sort((left, right) => {
@@ -242,7 +240,11 @@ export default function RADashboard() {
     });
 
     return rows;
-  }, [assignments, filterLag, filterStatus, filterSyncStatus, filterUpdate, now, search, sortBy]);
+  }, [assignments, filterState, filterStatus, now, search, sortBy]);
+
+  const uniqueStates = useMemo(() => {
+    return [...new Set((assignments || []).map((row) => row.states?.name).filter(Boolean))].sort();
+  }, [assignments]);
 
   const getSyncStatusChip = (status) => {
     if (status === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
@@ -385,39 +387,20 @@ export default function RADashboard() {
                 sx={{ minWidth: 220 }}
               />
               <FormControl size="small" sx={{ minWidth: 140 }}>
+                <InputLabel>State</InputLabel>
+                <Select value={filterState} label="State" onChange={(event) => setFilterState(event.target.value)}>
+                  <MenuItem value="All">All States</MenuItem>
+                  {uniqueStates.map((state) => (
+                    <MenuItem key={state} value={state}>{state}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 140 }}>
                 <InputLabel>Status</InputLabel>
                 <Select value={filterStatus} label="Status" onChange={(event) => setFilterStatus(event.target.value)}>
                   <MenuItem value="All">All Statuses</MenuItem>
                   <MenuItem value="Active">Active</MenuItem>
                   <MenuItem value="Inactive">Inactive</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel>Sync Status</InputLabel>
-                <Select value={filterSyncStatus} label="Sync Status" onChange={(event) => setFilterSyncStatus(event.target.value)}>
-                  <MenuItem value="All">All Sync Status</MenuItem>
-                  <MenuItem value="In Sync">In Sync ✓</MenuItem>
-                  <MenuItem value="Not Started">Not Started</MenuItem>
-                  <MenuItem value="ECI +1">ECI Ahead</MenuItem>
-                  <MenuItem value="Tool +1">Tool Ahead</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 140 }}>
-                <InputLabel>ECI Lag</InputLabel>
-                <Select value={filterLag} label="ECI Lag" onChange={(event) => setFilterLag(event.target.value)}>
-                  <MenuItem value="All">All Lags</MenuItem>
-                  <MenuItem value="Fresh">Fresh</MenuItem>
-                  <MenuItem value="Aging">Aging</MenuItem>
-                  <MenuItem value="Stale">Stale</MenuItem>
-                  <MenuItem value="Unknown">Unknown</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <InputLabel>ECI Update</InputLabel>
-                <Select value={filterUpdate} label="ECI Update" onChange={(event) => setFilterUpdate(event.target.value)}>
-                  <MenuItem value="All">All Updates</MenuItem>
-                  <MenuItem value="Has Update">Has Update</MenuItem>
-                  <MenuItem value="No Update">No Update</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 170 }}>

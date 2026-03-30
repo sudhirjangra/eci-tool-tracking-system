@@ -130,14 +130,12 @@ export default function AdminDashboard() {
 
     rows.forEach((row) => {
       const eciTs = toMillis(row.election?.eci_round_updated_at);
-      const toolTs = toMillis(row.election?.tool_round_updated_at);
-      if (!eciTs && !toolTs) {
+      if (!eciTs) {
         inactive += 1;
         return;
       }
 
-      const latest = Math.max(eciTs || 0, toolTs || 0);
-      if (latest && now - latest <= ACTIVITY_THRESHOLD_MS) {
+      if (now - eciTs <= ACTIVITY_THRESHOLD_MS) {
         active += 1;
       } else {
         inactive += 1;

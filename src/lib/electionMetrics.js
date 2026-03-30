@@ -1,4 +1,4 @@
-export const ACTIVITY_THRESHOLD_MS = 100000;
+export const ACTIVITY_THRESHOLD_MS = 60000;
 
 export function toMillis(value) {
   if (!value) return null;
@@ -36,7 +36,7 @@ export function getActivityFlags(eciRoundUpdatedAt, toolRoundUpdatedAt, now = Da
   const toolRoundUpdatedMillis = toMillis(toolRoundUpdatedAt);
   const eciActive = !!eciRoundUpdatedMillis && now - eciRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS;
   const toolActive = !!toolRoundUpdatedMillis && now - toolRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS;
-  const status = eciActive && toolActive ? 'Active' : 'Inactive';
+  const status = eciActive ? 'Active' : 'Inactive';
 
   return {
     eciActive,
