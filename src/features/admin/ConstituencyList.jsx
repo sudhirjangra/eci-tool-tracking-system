@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { formatLag, formatTimestamp, getConstituencyName, getLagSeconds } from '../../lib/electionMetrics';
+import { formatLag, formatTimestamp, getConstituencyName, getLagSeconds, pickLatestElectionRow } from '../../lib/electionMetrics';
 import {
   Box,
   TextField,
@@ -43,11 +43,15 @@ export default function ConstituencyList() {
             constituency_id,
             eci_round,
             tool_round,
+            eci_round_updated_at,
+            tool_round_updated_at,
             eci_updated_at
           )
         `)
         .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false });
+        .order('tool_name', { ascending: true, nullsFirst: false })
+        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .limit(1, { foreignTable: 'election_data' });
 
       if (constErr) throw constErr;
 
@@ -207,7 +211,7 @@ export default function ConstituencyList() {
             </TableHead>
             <TableBody>
               {filteredData?.map((row) => {
-                const electionData = row.election_data?.[0] || { eci_round: 0, tool_round: 0 };
+                const electionData = pickLatestElectionRow(row.election_data) || { eci_round: 0, tool_round: 0 };
                 const lagSeconds = getLagSeconds(electionData.eci_updated_at);
                 return (
                   <TableRow

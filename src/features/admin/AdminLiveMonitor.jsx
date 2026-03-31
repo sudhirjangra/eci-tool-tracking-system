@@ -12,6 +12,7 @@ import {
   formatLag,
   formatTimestamp,
   getSortTimestamp,
+  pickLatestElectionRow,
 } from '../../lib/electionMetrics';
 import {
   Box,
@@ -122,7 +123,9 @@ export default function AdminLiveMonitor() {
           )
         `)
         .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false });
+        .order('tool_name', { ascending: true, nullsFirst: false })
+        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .limit(1, { foreignTable: 'election_data' });
 
       if (constErr) throw constErr;
       return constData || [];
@@ -200,9 +203,9 @@ export default function AdminLiveMonitor() {
   const processedData = useMemo(() => {
     if (!rawData) return [];
     return rawData.map(row => {
-      const data = row.election_data?.[0];
-      const eciRound = data?.eci_round || 0;
-      const toolRound = data?.tool_round || 0;
+      const data = pickLatestElectionRow(row.election_data);
+      const eciRound = data?.eci_round ?? null;
+      const toolRound = data?.tool_round ?? null;
       const activity = getActivityFlags(data?.eci_round_updated_at, data?.tool_round_updated_at, now);
       const eciLagSeconds = getLagSeconds(data?.eci_updated_at, now);
 
@@ -223,7 +226,7 @@ export default function AdminLiveMonitor() {
         tlName,
         raEmail,
         raName,
-        syncStatus: getSyncStatus(eciRound, toolRound),
+        syncStatus: getSyncStatus(eciRound ?? 0, toolRound ?? 0),
         eciLagSeconds,
         lagBucket: getLagBucket(eciLagSeconds),
         eciLastUpdatedAt: data?.eci_updated_at || null,
@@ -503,7 +506,7 @@ export default function AdminLiveMonitor() {
                       <TableCell align="center" sx={{ py: 1 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                           <Chip
-                            label={row.eciRound}
+                            label={row.eciRound ?? '--'}
                             size="small"
                             variant="filled"
                             sx={{
@@ -517,7 +520,7 @@ export default function AdminLiveMonitor() {
                       <TableCell align="center" sx={{ py: 1 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                           <Chip
-                            label={row.toolRound}
+                            label={row.toolRound ?? '--'}
                             size="small"
                             variant="filled"
                             sx={{

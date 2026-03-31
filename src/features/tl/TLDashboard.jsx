@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
@@ -12,6 +12,7 @@ import {
   formatLag,
   formatTimestamp,
   getSortTimestamp,
+  pickLatestElectionRow,
 } from '../../lib/electionMetrics';
 import CreateRAModal from './CreateRAModal';
 import DelegateMapModal from './DelegateMapModal';
@@ -76,6 +77,7 @@ export default function TLDashboard() {
   const [mapUpdate, setMapUpdate] = useState('');
   const [mapSortBy, setMapSortBy] = useState('name');
   const [now, setNow] = useState(Date.now());
+  const trackedConstituencyIdsRef = useRef(new Set());
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15000);
@@ -129,7 +131,9 @@ export default function TLDashboard() {
         `)
         .eq('assigned_tl_id', currentUser.id)
         .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false });
+        .order('tool_name', { ascending: true, nullsFirst: false })
+        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .limit(1, { foreignTable: 'election_data' });
       if (error) throw error;
       return data || [];
     },
@@ -142,6 +146,10 @@ export default function TLDashboard() {
   const trackedConstituencyIds = useMemo(() => {
     return new Set((myConstituencies || []).map((row) => row.id));
   }, [myConstituencies]);
+
+  useEffect(() => {
+    trackedConstituencyIdsRef.current = trackedConstituencyIds;
+  }, [trackedConstituencyIds]);
 
   // Fetch the RAs managed by this TL
   const { data: myRAs, refetch: refetchRAs } = useQuery({
@@ -169,7 +177,7 @@ export default function TLDashboard() {
     const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
         const constituencyId = payload?.new?.constituency_id || payload?.old?.constituency_id;
-        if (!constituencyId || !trackedConstituencyIds.has(constituencyId)) {
+        if (!constituencyId || !trackedConstituencyIdsRef.current.has(constituencyId)) {
           return;
         }
         scheduler.push(payload);
@@ -188,7 +196,7 @@ export default function TLDashboard() {
       scheduler.dispose();
       supabase.removeChannel(channel);
     };
-  }, [queryClient, currentUser?.id, trackedConstituencyIds]);
+  }, [queryClient, currentUser?.id]);
 
   const stateOptions = useMemo(() => {
     return [...new Set((myConstituencies || []).map((item) => item.states?.name).filter(Boolean))].sort();
@@ -197,7 +205,7 @@ export default function TLDashboard() {
   const filteredMyConstituencies = useMemo(() => {
     const query = mapSearch.trim().toLowerCase();
     const rows = (myConstituencies || []).map((constituency) => {
-      const election = constituency.election_data?.[0] || {};
+      const election = pickLatestElectionRow(constituency.election_data) || {};
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
       const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
       const syncStatus = getSyncStatus(election.eci_round ?? 0, election.tool_round ?? 0);
@@ -282,7 +290,7 @@ export default function TLDashboard() {
       .map((ra) => {
         const assigned = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id);
         const territories = assigned.map((c) => {
-          const data = c.election_data?.[0] || {};
+          const data = pickLatestElectionRow(c.election_data) || {};
           const activity = getActivityFlags(data.eci_round_updated_at, data.tool_round_updated_at, now);
           const lagSeconds = getLagSeconds(data.eci_updated_at, now);
 
@@ -291,8 +299,8 @@ export default function TLDashboard() {
             eci_id: c.eci_id,
             state: c.states?.name || 'Unknown',
             constituencyName: getConstituencyName(c),
-            eci_round: data.eci_round ?? 0,
-            tool_round: data.tool_round ?? 0,
+            eci_round: data.eci_round ?? null,
+            tool_round: data.tool_round ?? null,
             eciActive: activity.eciActive,
             toolActive: activity.toolActive,
             eciUpdatedAt: data.eci_updated_at || null,
@@ -1051,12 +1059,12 @@ export default function TLDashboard() {
                                           <TableCell>{territory.constituencyName}</TableCell>
                                           <TableCell align="center">
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                                              <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round}</Typography>
+                                              <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{territory.eci_round ?? '--'}</Typography>
                                             </Box>
                                           </TableCell>
                                           <TableCell align="center">
                                             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                              <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{territory.tool_round}</Typography>
+                                              <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{territory.tool_round ?? '--'}</Typography>
                                             </Box>
                                           </TableCell>
                                           <TableCell align="center">

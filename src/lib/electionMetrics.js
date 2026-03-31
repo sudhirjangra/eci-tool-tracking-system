@@ -1,4 +1,4 @@
-export const ACTIVITY_THRESHOLD_MS = 60000;
+export const ACTIVITY_THRESHOLD_MS = 100000;
 
 export function toMillis(value) {
   if (!value) return null;
@@ -77,4 +77,31 @@ export function getLagBucket(seconds) {
 
 export function getSortTimestamp(value) {
   return toMillis(value) || 0;
+}
+
+function getElectionFreshness(row) {
+  if (!row) return 0;
+  return Math.max(
+    toMillis(row.eci_round_updated_at) || 0,
+    toMillis(row.tool_round_updated_at) || 0,
+    toMillis(row.eci_updated_at) || 0,
+  );
+}
+
+export function pickLatestElectionRow(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  return rows.reduce((latest, current) => {
+    if (!latest) return current;
+
+    const latestFreshness = getElectionFreshness(latest);
+    const currentFreshness = getElectionFreshness(current);
+    if (currentFreshness !== latestFreshness) {
+      return currentFreshness > latestFreshness ? current : latest;
+    }
+
+    const latestRoundTotal = (latest.eci_round || 0) + (latest.tool_round || 0);
+    const currentRoundTotal = (current.eci_round || 0) + (current.tool_round || 0);
+    return currentRoundTotal > latestRoundTotal ? current : latest;
+  }, null);
 }

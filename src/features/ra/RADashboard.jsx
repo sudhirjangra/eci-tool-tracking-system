@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
@@ -12,6 +12,7 @@ import {
   formatLag,
   formatTimestamp,
   getSortTimestamp,
+  pickLatestElectionRow,
 } from '../../lib/electionMetrics';
 import {
   Box,
@@ -44,6 +45,7 @@ export default function RADashboard() {
   const [filterStatus, setFilterStatus] = useState('All');
   const [sortBy, setSortBy] = useState('name');
   const [now, setNow] = useState(Date.now());
+  const trackedConstituencyIdsRef = useRef(new Set());
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15000);
@@ -96,7 +98,9 @@ export default function RADashboard() {
         `)
         .eq('assigned_ra_id', currentUser.id)
         .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false });
+        .order('tool_name', { ascending: true, nullsFirst: false })
+        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .limit(1, { foreignTable: 'election_data' });
 
       if (error) throw error;
       return data || [];
@@ -110,6 +114,10 @@ export default function RADashboard() {
   const trackedConstituencyIds = useMemo(() => {
     return new Set((assignments || []).map((row) => row.id));
   }, [assignments]);
+
+  useEffect(() => {
+    trackedConstituencyIdsRef.current = trackedConstituencyIds;
+  }, [trackedConstituencyIds]);
 
   // Fetch the RA's manager (TL)
   const { data: tlInfo } = useQuery({
@@ -155,7 +163,7 @@ export default function RADashboard() {
     const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
         const constituencyId = payload?.new?.constituency_id || payload?.old?.constituency_id;
-        if (!constituencyId || !trackedConstituencyIds.has(constituencyId)) {
+        if (!constituencyId || !trackedConstituencyIdsRef.current.has(constituencyId)) {
           return;
         }
         scheduler.push(payload);
@@ -174,7 +182,7 @@ export default function RADashboard() {
       scheduler.dispose();
       supabase.removeChannel(channel);
     };
-  }, [queryClient, currentUser?.id, trackedConstituencyIds]);
+  }, [queryClient, currentUser?.id]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -185,7 +193,7 @@ export default function RADashboard() {
     if (!assignments) return [];
     const q = (search || '').trim().toLowerCase();
     let rows = assignments.map((assignment) => {
-      const election = assignment.election_data?.[0] || {};
+      const election = pickLatestElectionRow(assignment.election_data) || {};
       const constituencyName = getConstituencyName(assignment);
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
       const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
@@ -519,7 +527,7 @@ export default function RADashboard() {
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
                             <Chip
-                              label={data.eci_round}
+                              label={data.eci_round ?? '--'}
                               size="small"
                               sx={{
                                 bgcolor: '#e0e7ff',
@@ -531,7 +539,7 @@ export default function RADashboard() {
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                             <Chip
-                              label={data.tool_round}
+                              label={data.tool_round ?? '--'}
                               size="small"
                               sx={{
                                 bgcolor: '#fce7f3',

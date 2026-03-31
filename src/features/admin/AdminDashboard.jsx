@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { ACTIVITY_THRESHOLD_MS, toMillis } from '../../lib/electionMetrics';
+import { ACTIVITY_THRESHOLD_MS, pickLatestElectionRow, toMillis } from '../../lib/electionMetrics';
 import { createBufferedQueryPatchScheduler, patchNestedElectionById } from '../../lib/electionRealtime';
 import AdminLiveMonitor from './AdminLiveMonitor';
 import ViewUserMapModal from './ViewUserMapModal';
@@ -79,14 +79,16 @@ export default function AdminDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('constituencies')
-        .select('id, state_id, tool_name, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at)');
+        .select('id, state_id, tool_name, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at, eci_updated_at)')
+        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .limit(1, { foreignTable: 'election_data' });
       if (error) throw error;
 
       return (data || []).map((row) => ({
         id: row.id,
         state_id: row.state_id,
         tool_name: row.tool_name,
-        election: row.election_data?.[0] || null,
+        election: pickLatestElectionRow(row.election_data),
       }));
     },
     staleTime: 30000,
