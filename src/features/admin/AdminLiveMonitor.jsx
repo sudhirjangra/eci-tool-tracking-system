@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
@@ -90,6 +90,7 @@ export default function AdminLiveMonitor() {
   }, [currentUser]);
   const queryClient = useQueryClient();
   const [now, setNow] = useState(Date.now());
+  const electionCacheRef = useRef(new Map());
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterTL, setFilterTL] = useState('All');
@@ -203,9 +204,19 @@ export default function AdminLiveMonitor() {
   const processedData = useMemo(() => {
     if (!rawData) return [];
     return rawData.map(row => {
-      const data = pickLatestElectionRow(row.election_data);
-      const eciRound = data?.eci_round ?? null;
-      const toolRound = data?.tool_round ?? null;
+      const candidate = pickLatestElectionRow(row.election_data) || row.election_data?.[0] || {};
+      const cached = electionCacheRef.current.get(row.id) || {};
+      const data = {
+        ...cached,
+        ...Object.fromEntries(
+          Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
+        ),
+      };
+      if (Object.keys(data).length > 0) {
+        electionCacheRef.current.set(row.id, data);
+      }
+      const eciRound = data?.eci_round ?? 0;
+      const toolRound = data?.tool_round ?? 0;
       const activity = getActivityFlags(data?.eci_round_updated_at, data?.tool_round_updated_at, now);
       const eciLagSeconds = getLagSeconds(data?.eci_updated_at, now);
 
@@ -451,12 +462,13 @@ export default function AdminLiveMonitor() {
               <Table stickyHeader>
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Activity</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Constituency</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>State</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI ID</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Constituency</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Tool Round</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Sync Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Activity</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Last Updated</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Lag</TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Team Lead</TableCell>
@@ -467,40 +479,18 @@ export default function AdminLiveMonitor() {
                   {paginatedData.map((row) => (
                     <TableRow key={row.id} sx={{ '&:hover': { bgcolor: '#f8fafc' }, transition: 'all 0.2s ease', borderBottom: '1px solid #e2e8f0' }}>
                       <TableCell sx={{ py: 1 }}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: row.eciActive ? '#10b981' : '#ef4444' }} />
-                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>ECI</Typography>
-                          </Stack>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: row.toolActive ? '#10b981' : '#ef4444' }} />
-                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
-                          </Stack>
-                        </Stack>
-                        <Box sx={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 0.75,
-                          px: 1.2,
-                          py: 0.6,
-                          borderRadius: '6px',
-                          fontWeight: 700,
-                          fontSize: '0.82rem',
-                          backgroundColor: row.status === 'Active' ? '#d1fae5' : '#fee2e2',
-                          color: row.status === 'Active' ? '#059669' : '#991b1b',
-                          border: row.status === 'Active' ? '1px solid #6ee7b7' : '1px solid #fecaca'
-                        }}>
-                          {row.status}
-                        </Box>
-                      </TableCell>
-                      <TableCell sx={{ py: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f4c75', fontSize: '0.9rem' }}>
-                          {row.constituencyName}
+                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.88rem' }}>
+                          {row.states?.name}
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>
                         <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.88rem' }}>
-                          {row.states?.name}
+                          {row.eci_id ?? '--'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ py: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f4c75', fontSize: '0.9rem' }}>
+                          {row.constituencyName}
                         </Typography>
                       </TableCell>
                       <TableCell align="center" sx={{ py: 1 }}>
@@ -543,6 +533,33 @@ export default function AdminLiveMonitor() {
                           ...getSyncChipStyles(row.syncStatus)
                         }}>
                           {row.syncStatus}
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ py: 1 }}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: row.eciActive ? '#10b981' : '#ef4444' }} />
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>ECI</Typography>
+                          </Stack>
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: row.toolActive ? '#10b981' : '#ef4444' }} />
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
+                          </Stack>
+                        </Stack>
+                        <Box sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          px: 1.2,
+                          py: 0.6,
+                          borderRadius: '6px',
+                          fontWeight: 700,
+                          fontSize: '0.82rem',
+                          backgroundColor: row.status === 'Active' ? '#d1fae5' : '#fee2e2',
+                          color: row.status === 'Active' ? '#059669' : '#991b1b',
+                          border: row.status === 'Active' ? '1px solid #6ee7b7' : '1px solid #fecaca'
+                        }}>
+                          {row.status}
                         </Box>
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>

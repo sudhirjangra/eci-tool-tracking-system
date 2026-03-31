@@ -78,6 +78,7 @@ export default function TLDashboard() {
   const [mapSortBy, setMapSortBy] = useState('name');
   const [now, setNow] = useState(Date.now());
   const trackedConstituencyIdsRef = useRef(new Set());
+  const electionCacheRef = useRef(new Map());
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15000);
@@ -205,7 +206,17 @@ export default function TLDashboard() {
   const filteredMyConstituencies = useMemo(() => {
     const query = mapSearch.trim().toLowerCase();
     const rows = (myConstituencies || []).map((constituency) => {
-      const election = pickLatestElectionRow(constituency.election_data) || {};
+      const candidate = pickLatestElectionRow(constituency.election_data) || constituency.election_data?.[0] || {};
+      const cached = electionCacheRef.current.get(constituency.id) || {};
+      const election = {
+        ...cached,
+        ...Object.fromEntries(
+          Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
+        ),
+      };
+      if (Object.keys(election).length > 0) {
+        electionCacheRef.current.set(constituency.id, election);
+      }
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
       const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
       const syncStatus = getSyncStatus(election.eci_round ?? 0, election.tool_round ?? 0);
@@ -218,6 +229,8 @@ export default function TLDashboard() {
         lagBucket: getLagBucket(lagSeconds),
         hasEciUpdate: Boolean(election.eci_updated_at),
         updateSort: getSortTimestamp(election.eci_updated_at),
+        eciActive: activity.eciActive,
+        toolActive: activity.toolActive,
         status: activity.status,
         syncStatus,
       };
@@ -290,7 +303,17 @@ export default function TLDashboard() {
       .map((ra) => {
         const assigned = (myConstituencies || []).filter((c) => c.assigned_ra_id === ra.id);
         const territories = assigned.map((c) => {
-          const data = pickLatestElectionRow(c.election_data) || {};
+          const candidate = pickLatestElectionRow(c.election_data) || c.election_data?.[0] || {};
+          const cached = electionCacheRef.current.get(c.id) || {};
+          const data = {
+            ...cached,
+            ...Object.fromEntries(
+              Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
+            ),
+          };
+          if (Object.keys(data).length > 0) {
+            electionCacheRef.current.set(c.id, data);
+          }
           const activity = getActivityFlags(data.eci_round_updated_at, data.tool_round_updated_at, now);
           const lagSeconds = getLagSeconds(data.eci_updated_at, now);
 
@@ -693,9 +716,13 @@ export default function TLDashboard() {
                       <TableCell>State</TableCell>
                       <TableCell>ECI ID</TableCell>
                       <TableCell>Constituency</TableCell>
-                      <TableCell>Assignment</TableCell>
+                      <TableCell align="center">ECI Round</TableCell>
+                      <TableCell align="center">Tool Round</TableCell>
+                      <TableCell align="center">Sync Status</TableCell>
+                      <TableCell align="center">Activity</TableCell>
                       <TableCell align="center">ECI Last Updated</TableCell>
                       <TableCell align="center">ECI Lag</TableCell>
+                      <TableCell>Assignment</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -711,6 +738,46 @@ export default function TLDashboard() {
                           <TableCell>{constituency.states?.name || 'Unknown'}</TableCell>
                           <TableCell>{constituency.eci_id || '—'}</TableCell>
                           <TableCell>{getConstituencyName(constituency)}</TableCell>
+                          <TableCell align="center">
+                            <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{election.eci_round ?? '--'}</Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{election.tool_round ?? '--'}</Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Box sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              px: 1.5,
+                              py: 0.5,
+                              borderRadius: '4px',
+                              fontWeight: 600,
+                              fontSize: '0.75rem',
+                              ...getSyncStatusColor(constituency.syncStatus)
+                            }}>
+                              {constituency.syncStatus}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5 }}>
+                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: constituency.eciActive ? '#10b981' : '#ef4444' }} />
+                                <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>ECI</Typography>
+                              </Box>
+                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: constituency.toolActive ? '#10b981' : '#ef4444' }} />
+                                <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
+                              </Box>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontSize: '0.85rem', color: '#64748b' }}>
+                            {formatTimestamp(election.eci_updated_at)}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Box sx={{ display: 'inline-flex', px: 1.25, py: 0.5, borderRadius: '999px', fontWeight: 700, fontFamily: 'monospace', ...getLagPalette(lagSeconds) }}>
+                              {formatLag(lagSeconds)}
+                            </Box>
+                          </TableCell>
                           <TableCell>
                             {isDelegated ? (
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#047857', fontWeight: 600 }}>
@@ -723,14 +790,6 @@ export default function TLDashboard() {
                                 <Typography>Delegate to an RA</Typography>
                               </Box>
                             )}
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontSize: '0.85rem', color: '#64748b' }}>
-                            {formatTimestamp(election.eci_updated_at)}
-                          </TableCell>
-                          <TableCell align="center">
-                            <Box sx={{ display: 'inline-flex', px: 1.25, py: 0.5, borderRadius: '999px', fontWeight: 700, fontFamily: 'monospace', ...getLagPalette(lagSeconds) }}>
-                              {formatLag(lagSeconds)}
-                            </Box>
                           </TableCell>
                         </TableRow>
                       );

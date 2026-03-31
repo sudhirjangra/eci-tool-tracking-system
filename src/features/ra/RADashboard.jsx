@@ -46,6 +46,7 @@ export default function RADashboard() {
   const [sortBy, setSortBy] = useState('name');
   const [now, setNow] = useState(Date.now());
   const trackedConstituencyIdsRef = useRef(new Set());
+  const electionCacheRef = useRef(new Map());
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15000);
@@ -120,31 +121,52 @@ export default function RADashboard() {
   }, [trackedConstituencyIds]);
 
   // Fetch the RA's manager (TL)
-  const { data: tlInfo } = useQuery({
+  const { data: tlInfo, isLoading: tlLoading } = useQuery({
     queryKey: ['ra-tl', currentUser?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('manager_id')
-        .eq('id', currentUser.id)
-        .single();
-      if (error) throw error;
-      if (data?.manager_id) {
-        // Fetch manager's name and email from user_roles
-        const { data: tlData, error: tlErr } = await supabase
+      try {
+        // First, get current user's manager_id
+        const { data: userData, error: userError } = await supabase
           .from('user_roles')
-          .select('email, name')
-          .eq('id', data.manager_id)
+          .select('manager_id')
+          .eq('id', currentUser.id)
           .single();
-        if (tlErr) throw tlErr;
-        return { 
-          email: tlData?.email || 'N/A', 
-          name: tlData?.name || tlData?.email || 'N/A' 
+        
+        if (userError) {
+          return null;
+        }
+        
+        const managerId = userData?.manager_id;
+        if (!managerId) {
+          return null;
+        }
+        // Fetch manager details from user_roles
+        const { data: tlDataArray, error: tlError } = await supabase
+          .from('user_roles')
+          .select('id, name, email')
+          .eq('id', managerId);
+        
+        if (tlError) {
+          return null;
+        }
+
+        const tlData = tlDataArray?.[0];
+        if (!tlData) {
+          return null;
+        }
+
+        return {
+          id: tlData.id,
+          email: tlData.email || 'N/A',
+          name: tlData.name || 'N/A'
         };
+      } catch (err) {
+        return null;
       }
-      return null;
     },
     enabled: !!currentUser?.id,
+    staleTime: -1,
+    retry: 3,
   });
 
   // Real-time subscription for live updates on election_data
@@ -193,7 +215,17 @@ export default function RADashboard() {
     if (!assignments) return [];
     const q = (search || '').trim().toLowerCase();
     let rows = assignments.map((assignment) => {
-      const election = pickLatestElectionRow(assignment.election_data) || {};
+      const candidate = pickLatestElectionRow(assignment.election_data) || assignment.election_data?.[0] || {};
+      const cached = electionCacheRef.current.get(assignment.id) || {};
+      const election = {
+        ...cached,
+        ...Object.fromEntries(
+          Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
+        ),
+      };
+      if (Object.keys(election).length > 0) {
+        electionCacheRef.current.set(assignment.id, election);
+      }
       const constituencyName = getConstituencyName(assignment);
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
       const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
@@ -479,10 +511,13 @@ export default function RADashboard() {
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      Constituency
+                      State
                     </TableCell>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      State
+                      ECI ID
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                      Constituency
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
                       ECI Round
@@ -518,11 +553,14 @@ export default function RADashboard() {
                           borderBottom: '1px solid #e2e8f0'
                         }}
                       >
-                        <TableCell sx={{ py: 1, fontWeight: 600, color: '#0f4c75' }}>
-                          {row.constituencyName}
-                        </TableCell>
                         <TableCell sx={{ py: 1, color: '#64748b' }}>
                           {row.states?.name}
+                        </TableCell>
+                        <TableCell sx={{ py: 1, color: '#64748b' }}>
+                          {row.eci_id ?? '--'}
+                        </TableCell>
+                        <TableCell sx={{ py: 1, fontWeight: 600, color: '#0f4c75' }}>
+                          {row.constituencyName}
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>

@@ -3,7 +3,7 @@
 set PATH=C:\Users\ID0346943\Downloads\nodejs;%PATH%
 
 :: 2. Navigate to your project folder (if not already there)
-cd /d "C:\Users\ID0346943\Downloads\Elections 2026 Tracker\ECI-Gem\election-dashboard"
+cd /d "C:\Users\ID0346943\Downloads\Elections 2026 Tracker\Production\election-dashboard"
 
 :: 3. Verify Node version just to be sure
 echo Using Node Version:
