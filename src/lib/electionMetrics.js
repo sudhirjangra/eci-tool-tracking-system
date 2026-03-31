@@ -34,6 +34,13 @@ export function formatTimestamp(value) {
 export function getActivityFlags(eciRoundUpdatedAt, toolRoundUpdatedAt, now = Date.now()) {
   const eciRoundUpdatedMillis = toMillis(eciRoundUpdatedAt);
   const toolRoundUpdatedMillis = toMillis(toolRoundUpdatedAt);
+  if (!eciRoundUpdatedMillis && !toolRoundUpdatedMillis) {
+    console.debug('[Metrics] activity timestamps missing', {
+      eciRoundUpdatedAt,
+      toolRoundUpdatedAt,
+      now,
+    });
+  }
   const eciActive = !!eciRoundUpdatedMillis && now - eciRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS;
   const toolActive = !!toolRoundUpdatedMillis && now - toolRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS;
   const status = eciActive ? 'Active' : 'Inactive';
@@ -90,6 +97,13 @@ function getElectionFreshness(row) {
 
 export function pickLatestElectionRow(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  if (rows.length > 1) {
+    console.debug('[Metrics] pickLatestElectionRow', {
+      count: rows.length,
+      rows,
+    });
+  }
 
   return rows.reduce((latest, current) => {
     if (!latest) return current;

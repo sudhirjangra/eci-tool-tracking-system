@@ -101,6 +101,8 @@ export default function RADashboard() {
         .order('states(name)', { ascending: true })
         .order('tool_name', { ascending: true, nullsFirst: false })
         .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .order('tool_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .order('eci_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
         .limit(1, { foreignTable: 'election_data' });
 
       if (error) throw error;
@@ -223,12 +225,38 @@ export default function RADashboard() {
           Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
         ),
       };
+      if (assignment.election_data?.length && assignment.election_data?.length > 1) {
+        console.debug('[RADashboard] election_data rows', {
+          constituencyId: assignment.id,
+          count: assignment.election_data.length,
+          candidate,
+        });
+      }
+      if (!election?.eci_round_updated_at && !election?.tool_round_updated_at && !election?.eci_updated_at) {
+        console.debug('[RADashboard] missing update timestamps', {
+          constituencyId: assignment.id,
+          election,
+          cached,
+          candidate,
+        });
+      }
       if (Object.keys(election).length > 0) {
         electionCacheRef.current.set(assignment.id, election);
       }
       const constituencyName = getConstituencyName(assignment);
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
       const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
+      if (activity.status === 'Inactive') {
+        console.debug('[RADashboard] inactive activity', {
+          constituencyId: assignment.id,
+          eciRound: election.eci_round,
+          toolRound: election.tool_round,
+          eciRoundUpdatedAt: election.eci_round_updated_at,
+          toolRoundUpdatedAt: election.tool_round_updated_at,
+          eciUpdatedAt: election.eci_updated_at,
+          now,
+        });
+      }
       const syncStatus = getSyncStatus(election.eci_round ?? 0, election.tool_round ?? 0);
 
       return {

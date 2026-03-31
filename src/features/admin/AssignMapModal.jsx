@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { getConstituencyName } from '../../lib/electionMetrics';
@@ -28,6 +28,7 @@ import {
   Stack,
   InputAdornment,
 } from '@mui/material';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { MapPin, Search } from 'lucide-react';
 
 export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
@@ -51,6 +52,30 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
     },
     enabled: !!tl?.id && isOpen, 
   });
+
+  const { data: userEmails } = useQuery({
+    queryKey: ['all-user-emails-assign-map'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('id, email, name');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: isOpen,
+  });
+
+  const tlInfoMap = useMemo(() => {
+    const map = {};
+    userEmails?.forEach((u) => {
+      map[u.id] = {
+        name: u.name || u.email,
+        email: u.email,
+        display: u.name ? `${u.name} (${u.email})` : u.email,
+      };
+    });
+    return map;
+  }, [userEmails]);
 
   const states = [...new Set((constituencies || []).map(c => c.states?.name).filter(Boolean))].sort();
 
@@ -254,6 +279,9 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
                 color="primary"
                 variant="outlined"
               />
+              <Typography variant="caption" sx={{ color: '#64748b' }}>
+                Locked rows belong to other team leaders. You can modify your current TL assignments.
+              </Typography>
             </Box>
 
             {/* Error Alert */}
@@ -302,6 +330,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
                   <TableBody>
                     {filteredData.map((c) => {
                       const disabled = isDisabledConstituency(c);
+                      const assignedTl = c.assigned_tl_id ? tlInfoMap[c.assigned_tl_id]?.display || c.assigned_tl_id : null;
                       return (
                         <TableRow
                           key={c.id}
@@ -326,7 +355,14 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
                             {c.assigned_tl_id
                               ? c.assigned_tl_id === tl.id
                                 ? 'Current TL'
-                                : c.assigned_tl_id
+                                : (
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <LockOutlinedIcon sx={{ fontSize: '1rem', color: '#ef4444' }} />
+                                    <Typography variant="body2" sx={{ color: '#ef4444', fontWeight: 600 }}>
+                                      Locked ({assignedTl || 'Assigned'})
+                                    </Typography>
+                                  </Stack>
+                                )
                               : 'Unassigned'}
                           </TableCell>
                         </TableRow>

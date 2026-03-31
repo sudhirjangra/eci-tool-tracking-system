@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { getConstituencyName } from '../../lib/electionMetrics';
 import {
@@ -25,10 +25,13 @@ import {
   CircularProgress,
   Alert,
   InputAdornment,
+  Stack,
 } from '@mui/material';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { Map, Search } from 'lucide-react';
 
 export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess }) {
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectedState, setSelectedState] = useState('');
@@ -152,6 +155,8 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
         if (unassignError) throw unassignError;
       }
 
+      await queryClient.invalidateQueries({ queryKey: ['tl-delegation-map', tlId] });
+      await queryClient.invalidateQueries({ queryKey: ['tl-constituencies', tlId] });
       onSuccess();
     } catch (err) {
       setError(err.message);
@@ -297,6 +302,9 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                   fontWeight: 700,
                 }}
               />
+              <Typography variant="caption" sx={{ color: '#64748b' }}>
+                Locked rows belong to other RAs. You can modify this RA&apos;s assignments.
+              </Typography>
             </Box>
 
             {/* Error Alert */}
@@ -371,7 +379,14 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                             {c.assigned_ra_id
                               ? c.assigned_ra_id === ra.id
                                 ? `${ra.name ? `${ra.name} (${ra.email})` : ra.email} (Current RA)`
-                                : raInfoMap[c.assigned_ra_id]?.display || c.assigned_ra_id
+                                : (
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <LockOutlinedIcon sx={{ fontSize: '1rem', color: '#ef4444' }} />
+                                    <Typography variant="body2" sx={{ color: '#ef4444', fontWeight: 600 }}>
+                                      Locked ({raInfoMap[c.assigned_ra_id]?.display || c.assigned_ra_id})
+                                    </Typography>
+                                  </Stack>
+                                )
                               : 'Unassigned'}
                           </TableCell>
                         </TableRow>

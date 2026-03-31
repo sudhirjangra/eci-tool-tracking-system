@@ -134,6 +134,8 @@ export default function TLDashboard() {
         .order('states(name)', { ascending: true })
         .order('tool_name', { ascending: true, nullsFirst: false })
         .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .order('tool_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .order('eci_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
         .limit(1, { foreignTable: 'election_data' });
       if (error) throw error;
       return data || [];
@@ -214,11 +216,37 @@ export default function TLDashboard() {
           Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
         ),
       };
+      if (constituency.election_data?.length && constituency.election_data?.length > 1) {
+        console.debug('[TLDashboard] election_data rows', {
+          constituencyId: constituency.id,
+          count: constituency.election_data.length,
+          candidate,
+        });
+      }
+      if (!election?.eci_round_updated_at && !election?.tool_round_updated_at && !election?.eci_updated_at) {
+        console.debug('[TLDashboard] missing update timestamps', {
+          constituencyId: constituency.id,
+          election,
+          cached,
+          candidate,
+        });
+      }
       if (Object.keys(election).length > 0) {
         electionCacheRef.current.set(constituency.id, election);
       }
       const lagSeconds = getLagSeconds(election.eci_updated_at, now);
       const activity = getActivityFlags(election.eci_round_updated_at, election.tool_round_updated_at, now);
+      if (activity.status === 'Inactive') {
+        console.debug('[TLDashboard] inactive activity', {
+          constituencyId: constituency.id,
+          eciRound: election.eci_round,
+          toolRound: election.tool_round,
+          eciRoundUpdatedAt: election.eci_round_updated_at,
+          toolRoundUpdatedAt: election.tool_round_updated_at,
+          eciUpdatedAt: election.eci_updated_at,
+          now,
+        });
+      }
       const syncStatus = getSyncStatus(election.eci_round ?? 0, election.tool_round ?? 0);
 
       return {
@@ -311,11 +339,37 @@ export default function TLDashboard() {
               Object.entries(candidate).filter(([, value]) => value !== null && value !== undefined),
             ),
           };
+          if (c.election_data?.length && c.election_data?.length > 1) {
+            console.debug('[TLDashboard] RA territories election_data rows', {
+              constituencyId: c.id,
+              count: c.election_data.length,
+              candidate,
+            });
+          }
+          if (!data?.eci_round_updated_at && !data?.tool_round_updated_at && !data?.eci_updated_at) {
+            console.debug('[TLDashboard] RA territories missing timestamps', {
+              constituencyId: c.id,
+              data,
+              cached,
+              candidate,
+            });
+          }
           if (Object.keys(data).length > 0) {
             electionCacheRef.current.set(c.id, data);
           }
           const activity = getActivityFlags(data.eci_round_updated_at, data.tool_round_updated_at, now);
           const lagSeconds = getLagSeconds(data.eci_updated_at, now);
+          if (activity.status === 'Inactive') {
+            console.debug('[TLDashboard] RA territories inactive activity', {
+              constituencyId: c.id,
+              eciRound: data.eci_round,
+              toolRound: data.tool_round,
+              eciRoundUpdatedAt: data.eci_round_updated_at,
+              toolRoundUpdatedAt: data.tool_round_updated_at,
+              eciUpdatedAt: data.eci_updated_at,
+              now,
+            });
+          }
 
           return {
             id: c.id,

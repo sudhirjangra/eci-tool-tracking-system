@@ -56,6 +56,14 @@ export function patchNestedElectionRows(rows, payload) {
   const record = getPayloadRecord(payload);
   if (!record || !Array.isArray(rows)) return rows;
 
+  if (!record.eci_round_updated_at && !record.tool_round_updated_at && !record.eci_updated_at) {
+    console.debug('[Realtime] payload missing timestamps', {
+      constituencyId: record.constituency_id,
+      record,
+      payloadType: payload?.eventType,
+    });
+  }
+
   const index = rows.findIndex((row) => row.id === record.constituency_id);
   if (index === -1) return rows;
 

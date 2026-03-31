@@ -81,6 +81,8 @@ export default function AdminDashboard() {
         .from('constituencies')
         .select('id, state_id, tool_name, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at, eci_updated_at)')
         .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .order('tool_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
+        .order('eci_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
         .limit(1, { foreignTable: 'election_data' });
       if (error) throw error;
 
@@ -131,6 +133,12 @@ export default function AdminDashboard() {
     let inactive = 0;
 
     rows.forEach((row) => {
+      if (!row?.election?.eci_round_updated_at && !row?.election?.tool_round_updated_at && !row?.election?.eci_updated_at) {
+        console.debug('[AdminDashboard] nav stats missing timestamps', {
+          constituencyId: row.id,
+          election: row.election,
+        });
+      }
       const eciTs = toMillis(row.election?.eci_round_updated_at);
       if (!eciTs) {
         inactive += 1;
