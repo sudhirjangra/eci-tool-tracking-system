@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
 import {
+  compareConstituencyNames,
+  compareRoundDifference,
   getActivityFlags,
   getConstituencyName,
   getLagBucket,
@@ -16,6 +18,18 @@ import {
   getSortTimestamp,
   pickLatestElectionRow,
 } from '../../lib/electionMetrics';
+import {
+  dashboardControlSx,
+  dashboardFilterBarSx,
+  dashboardSearchSx,
+  dashboardShellSx,
+  dashboardTableCardSx,
+  dashboardTableHeadCellSx,
+  dashboardTableRowSx,
+  getLagPalette,
+  getStatusPalette,
+  getSyncStatusPalette,
+} from '../../lib/dashboardUi';
 import {
   Box,
   Card,
@@ -117,12 +131,12 @@ export default function AdminLiveMonitor() {
   const [now, setNow] = useState(Date.now());
   const electionCacheRef = useRef(new Map());
   const [filterState, setFilterState] = useState('All');
-  const [filterStatus, setFilterStatus] = useState('All');
   const [filterSyncStatus, setFilterSyncStatus] = useState('All');
   const [filterTL, setFilterTL] = useState('All');
   const [filterRA, setFilterRA] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
 
@@ -213,7 +227,7 @@ export default function AdminLiveMonitor() {
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterState, filterStatus, filterSyncStatus, filterTL, filterRA, searchTerm, sortBy]);
+  }, [filterState, filterSyncStatus, filterTL, filterRA, deferredSearchTerm, sortBy]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
@@ -271,6 +285,7 @@ export default function AdminLiveMonitor() {
         constituencyName: getConstituencyName(row),
         eciRound,
         toolRound,
+        roundDifference: getSyncStatusDelta(eciRound ?? 0, toolRound ?? 0),
         eciActive: activity.eciActive,
         toolActive: activity.toolActive,
         status: activity.status,
@@ -289,7 +304,7 @@ export default function AdminLiveMonitor() {
 
   // 6. Apply Filters
   const filteredData = useMemo(() => {
-    const query = searchTerm.toLowerCase();
+    const query = (deferredSearchTerm || '').trim().toLowerCase();
     const rows = processedData.filter((row) => {
       const matchesSearch =
         row.constituencyName.toLowerCase().includes(query) ||
@@ -299,31 +314,32 @@ export default function AdminLiveMonitor() {
         (row.raName || '').toLowerCase().includes(query);
       
       const matchesState = filterState === 'All' || row.states?.name === filterState;
-      const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
       const matchesSyncStatus = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
       const matchesTL = filterTL === 'All' || row.tlEmail === filterTL;
       const matchesRA = filterRA === 'All' || row.raEmail === filterRA;
 
-      return matchesSearch && matchesState && matchesStatus && matchesSyncStatus && matchesTL && matchesRA;
+      return matchesSearch && matchesState && matchesSyncStatus && matchesTL && matchesRA;
     });
 
     rows.sort((left, right) => {
-      if (sortBy === 'sync-status') {
-        const syncOrder = { 'ECI = TOOL': 0, 'Not Started': 1, 'ECI > TOOL': 2, 'ECI < TOOL': 3 };
-        return (syncOrder[left.syncStatus] ?? 99) - (syncOrder[right.syncStatus] ?? 99);
+      if (sortBy === 'round-diff') {
+        return compareRoundDifference(left.roundDifference, right.roundDifference) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
       if (sortBy === 'lag-asc') {
-        return (left.eciLagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.eciLagSeconds ?? Number.MAX_SAFE_INTEGER);
+        return ((left.eciLagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.eciLagSeconds ?? Number.MAX_SAFE_INTEGER)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
-      return (right.eciLagSeconds ?? -1) - (left.eciLagSeconds ?? -1);
+      return ((right.eciLagSeconds ?? -1) - (left.eciLagSeconds ?? -1)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
     });
 
     return rows;
-  }, [filterState, filterStatus, filterSyncStatus, filterTL, filterRA, processedData, searchTerm, sortBy]);
+  }, [deferredSearchTerm, filterState, filterSyncStatus, filterTL, filterRA, processedData, sortBy]);
 
-  const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
+  const uniqueStates = useMemo(() => {
+    return [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
+  }, [rawData]);
+
   const uniqueTLs = useMemo(() => {
     const options = new Map();
     processedData.forEach((row) => {
@@ -361,20 +377,6 @@ export default function AdminLiveMonitor() {
     setPage(0);
   };
 
-  const getLagPalette = (seconds) => {
-    if (seconds === null || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
-    if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
-    if (seconds <= 300) return { bgcolor: '#fef3c7', color: '#92400e' };
-    return { bgcolor: '#fee2e2', color: '#991b1b' };
-  };
-
-  const getSyncChipStyles = (syncStatus) => {
-    if (syncStatus === 'ECI = TOOL') return { backgroundColor: '#d1fae5', color: '#059669' };
-    if (syncStatus === 'Not Started') return { backgroundColor: '#e2e8f0', color: '#64748b' };
-    if (syncStatus === 'ECI > TOOL') return { backgroundColor: '#fee2e2', color: '#991b1b' };
-    return { backgroundColor: '#fef3c7', color: '#92400e' };
-  };
-
   if (!authReady) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '50vh', bgcolor: '#f0f4f8' }}>
@@ -384,40 +386,27 @@ export default function AdminLiveMonitor() {
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', bgcolor: '#f0f4f8', margin: 0, padding: 0 }}>
+    <Box sx={{ ...dashboardShellSx, minHeight: '100%', bgcolor: 'transparent', margin: 0, padding: 0 }} className="dashboard-fade-in">
       {/* Middle Section - Filters */}
-      <Box sx={{ p: 0.5, px: 1, bgcolor: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 1.25, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+      <Box sx={dashboardFilterBarSx}>
         <TextField
-          placeholder="Search constituency, state, or ECI ID..."
+          placeholder="Search constituency, state, TL, or RA..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           InputProps={{
             startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: '#94a3b8' }} /></InputAdornment>,
           }}
-          sx={{
-            minWidth: 250,
-            '& .MuiOutlinedInput-root': {
-              bgcolor: '#f8fafc',
-              borderRadius: '8px',
-              border: '1px solid #e2e8f0',
-              '&:hover': { borderColor: '#cbd5e1' },
-              '&.Mui-focused': { borderColor: '#0f4c75' }
-            }
-          }}
+          sx={dashboardSearchSx}
           size="small"
         />
         
-        <FormControl sx={{ minWidth: 160 }} size="small">
+        <FormControl sx={dashboardControlSx} size="small">
           <InputLabel>State</InputLabel>
           <Select
             value={filterState}
             label="State"
             onChange={(e) => setFilterState(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px',
-              '& .MuiOutlinedInput-root': { border: '1px solid #e2e8f0' }
-            }}
+            sx={dashboardControlSx}
           >
             <MenuItem value="All">All States</MenuItem>
             {uniqueStates.map(state => (
@@ -426,33 +415,13 @@ export default function AdminLiveMonitor() {
           </Select>
         </FormControl>
 
-        <FormControl sx={{ minWidth: 160 }} size="small">
-          <InputLabel>Status</InputLabel>
-          <Select
-            value={filterStatus}
-            label="Status"
-            onChange={(e) => setFilterStatus(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
-          >
-            <MenuItem value="All">Status</MenuItem>
-            <MenuItem value="Active">Active (&lt;1 min)</MenuItem>
-            <MenuItem value="Inactive">Inactive (&ge;1 min)</MenuItem>
-          </Select>
-        </FormControl>
-
-        <FormControl sx={{ minWidth: 170 }} size="small">
+        <FormControl sx={dashboardControlSx} size="small">
           <InputLabel>Sync Status</InputLabel>
           <Select
             value={filterSyncStatus}
             label="Sync Status"
             onChange={(e) => setFilterSyncStatus(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
+            sx={dashboardControlSx}
           >
             <MenuItem value="All">All Sync Status</MenuItem>
             <MenuItem value="ECI = TOOL">ECI = TOOL</MenuItem>
@@ -462,16 +431,13 @@ export default function AdminLiveMonitor() {
           </Select>
         </FormControl>
 
-        <FormControl sx={{ minWidth: 160 }} size="small">
+        <FormControl sx={dashboardControlSx} size="small">
           <InputLabel>Team Lead</InputLabel>
           <Select
             value={filterTL}
             label="Team Lead"
             onChange={(e) => setFilterTL(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
+            sx={dashboardControlSx}
           >
             <MenuItem value="All">All Team Leads</MenuItem>
             {uniqueTLs.map((tl) => (
@@ -480,16 +446,13 @@ export default function AdminLiveMonitor() {
           </Select>
         </FormControl>
 
-        <FormControl sx={{ minWidth: 180 }} size="small">
+        <FormControl sx={dashboardControlSx} size="small">
           <InputLabel>Research Analyst</InputLabel>
           <Select
             value={filterRA}
             label="Research Analyst"
             onChange={(e) => setFilterRA(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
+            sx={dashboardControlSx}
           >
             <MenuItem value="All">All Research Analysts</MenuItem>
             {uniqueRAs.map((ra) => (
@@ -498,27 +461,24 @@ export default function AdminLiveMonitor() {
           </Select>
         </FormControl>
 
-        <FormControl sx={{ minWidth: 180 }} size="small">
+        <FormControl sx={dashboardControlSx} size="small">
           <InputLabel>Sort</InputLabel>
           <Select
             value={sortBy}
             label="Sort"
             onChange={(e) => setSortBy(e.target.value)}
-            sx={{
-              bgcolor: '#f8fafc',
-              borderRadius: '8px'
-            }}
+            sx={dashboardControlSx}
           >
             <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
             <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
-            <MenuItem value="sync-status">Round Difference</MenuItem>
+            <MenuItem value="round-diff">Round Difference</MenuItem>
           </Select>
         </FormControl>
       </Box>
 
       {/* Main Table Area */}
-      <Box sx={{ flex: 1, overflow: 'auto', bgcolor: '#f0f4f8' }}>
-        <Box sx={{ m: 0.5, mx: 1, my: 0.5, bgcolor: '#fff', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', height: 'calc(100% - 0.5rem)' }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', bgcolor: '#f0f4f8' }}>
+        <Box sx={{ ...dashboardTableCardSx, m: 0.5, mx: 1, my: 0.5, height: 'calc(100% - 0.5rem)', minHeight: 0 }}>
           {loadingData ? (
             <Box sx={{ p: 6, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, flex: 1 }}>
               <CircularProgress size={50} />
@@ -533,34 +493,28 @@ export default function AdminLiveMonitor() {
               <Typography variant="body2">Try adjusting your search criteria or filters</Typography>
             </Box>
           ) : (
-            <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+            <TableContainer sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
               <Table stickyHeader>
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>State</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI ID</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Constituency</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Round</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Tool Round</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Sync Status</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Activity</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Last Updated</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>ECI Lag</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Team Lead</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b', py: 1 }}>Research Analyst</TableCell>
+                    <TableCell sx={dashboardTableHeadCellSx}>State</TableCell>
+                    <TableCell sx={dashboardTableHeadCellSx}>Constituency</TableCell>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Round</TableCell>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>Tool Round</TableCell>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>Sync Status</TableCell>
+                    <TableCell sx={dashboardTableHeadCellSx}>Activity</TableCell>
+                    <TableCell sx={dashboardTableHeadCellSx}>ECI Last Updated</TableCell>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Lag</TableCell>
+                    <TableCell sx={dashboardTableHeadCellSx}>Team Lead</TableCell>
+                    <TableCell sx={dashboardTableHeadCellSx}>Research Analyst</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {paginatedData.map((row) => (
-                    <TableRow key={row.id} sx={{ '&:hover': { bgcolor: '#f8fafc' }, transition: 'all 0.2s ease', borderBottom: '1px solid #e2e8f0' }}>
+                    <TableRow key={row.id} sx={dashboardTableRowSx}>
                       <TableCell sx={{ py: 1 }}>
                         <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.88rem' }}>
                           {row.states?.name}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ py: 1 }}>
-                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.88rem' }}>
-                          {row.eci_id ?? '--'}
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>
@@ -605,13 +559,13 @@ export default function AdminLiveMonitor() {
                           borderRadius: '6px',
                           fontWeight: 700,
                           fontSize: '0.8rem',
-                          ...getSyncChipStyles(row.syncStatus)
+                          ...getSyncStatusPalette(row.syncStatus)
                         }}>
                           {row.syncStatus}
                           {row.syncStatus !== 'Not Started' && (
                             <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
                               <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
-                              <span>{getSyncStatusDelta(row.eciRound ?? 0, row.toolRound ?? 0)}</span>
+                              <span>{row.roundDifference}</span>
                             </Box>
                           )}
                         </Box>
@@ -636,9 +590,7 @@ export default function AdminLiveMonitor() {
                           borderRadius: '6px',
                           fontWeight: 700,
                           fontSize: '0.82rem',
-                          backgroundColor: row.status === 'Active' ? '#d1fae5' : '#fee2e2',
-                          color: row.status === 'Active' ? '#059669' : '#991b1b',
-                          border: row.status === 'Active' ? '1px solid #6ee7b7' : '1px solid #fecaca'
+                          ...getStatusPalette(row.status)
                         }}>
                           {row.status}
                         </Box>

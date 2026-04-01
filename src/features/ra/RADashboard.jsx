@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
 import {
+  compareConstituencyNames,
+  compareRoundDifference,
   getActivityFlags,
   getConstituencyName,
   getLagBucket,
@@ -16,6 +18,21 @@ import {
   getSortTimestamp,
   pickLatestElectionRow,
 } from '../../lib/electionMetrics';
+import {
+  dashboardContentSx,
+  dashboardControlSx,
+  dashboardHeaderSx,
+  dashboardIntroSx,
+  dashboardSearchSx,
+  dashboardShellSx,
+  dashboardTableCardSx,
+  dashboardTableHeadCellSx,
+  dashboardTableRowSx,
+  getLagPalette,
+  getSortLabel,
+  getSyncStatusPalette,
+  liveBadgeSx,
+} from '../../lib/dashboardUi';
 import {
   Box,
   Table,
@@ -43,8 +60,8 @@ export default function RADashboard() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [filterState, setFilterState] = useState('All');
-  const [filterStatus, setFilterStatus] = useState('All');
   const [filterSyncStatus, setFilterSyncStatus] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
   const [now, setNow] = useState(Date.now());
@@ -228,7 +245,7 @@ export default function RADashboard() {
 
   const filteredAssignments = useMemo(() => {
     if (!assignments) return [];
-    const q = (search || '').trim().toLowerCase();
+    const q = (deferredSearch || '').trim().toLowerCase();
     let rows = assignments.map((assignment) => {
       const candidate = pickLatestElectionRow(assignment.election_data) || assignment.election_data?.[0] || {};
       const cached = electionCacheRef.current.get(assignment.id) || {};
@@ -279,6 +296,7 @@ export default function RADashboard() {
         lagBucket: getLagBucket(lagSeconds),
         hasEciUpdate: Boolean(election.eci_updated_at),
         syncStatus,
+        roundDifference: getSyncStatusDelta(election.eci_round ?? 0, election.tool_round ?? 0),
         activity,
         election,
       };
@@ -296,51 +314,32 @@ export default function RADashboard() {
       rows = rows.filter((assignment) => assignment.states?.name === filterState);
     }
 
-    if (filterStatus !== 'All') {
-      rows = rows.filter((assignment) => assignment.activity.status === filterStatus);
-    }
-
     if (filterSyncStatus !== 'All') {
       rows = rows.filter((assignment) => assignment.syncStatus === filterSyncStatus);
     }
 
     rows.sort((left, right) => {
       if (sortBy === 'lag-desc') {
-        return (right.lagSeconds ?? -1) - (left.lagSeconds ?? -1);
+        return ((right.lagSeconds ?? -1) - (left.lagSeconds ?? -1)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
       if (sortBy === 'lag-asc') {
-        return (left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER);
+        return ((left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
-      if (sortBy === 'sync-status') {
-        const syncOrder = { 'ECI = TOOL': 0, 'Not Started': 1, 'ECI > TOOL': 2, 'ECI < TOOL': 3 };
-        return (syncOrder[left.syncStatus] ?? 99) - (syncOrder[right.syncStatus] ?? 99);
+      if (sortBy === 'round-diff') {
+        return compareRoundDifference(left.roundDifference, right.roundDifference) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
-      return (right.election.eci_round ?? 0) - (right.election.tool_round ?? 0) - ((left.election.eci_round ?? 0) - (left.election.tool_round ?? 0));
+      return compareConstituencyNames(left.constituencyName, right.constituencyName);
     });
 
     return rows;
-  }, [assignments, filterState, filterStatus, filterSyncStatus, now, search, sortBy]);
+  }, [assignments, deferredSearch, filterState, filterSyncStatus, now, sortBy]);
 
   const uniqueStates = useMemo(() => {
     return [...new Set((assignments || []).map((row) => row.states?.name).filter(Boolean))].sort();
   }, [assignments]);
-
-  const getSyncStatusChip = (status) => {
-    if (status === 'ECI = TOOL') return { backgroundColor: '#d1fae5', color: '#059669' };
-    if (status === 'Not Started') return { backgroundColor: '#f3f4f6', color: '#6b7280' };
-    if (status === 'ECI > TOOL') return { backgroundColor: '#fee2e2', color: '#991b1b' };
-    return { backgroundColor: '#fef3c7', color: '#92400e' };
-  };
-
-  const getLagChip = (seconds) => {
-    if (seconds === null || seconds === undefined) return { backgroundColor: '#e2e8f0', color: '#64748b' };
-    if (seconds <= 60) return { backgroundColor: '#d1fae5', color: '#047857' };
-    if (seconds <= 300) return { backgroundColor: '#fef3c7', color: '#92400e' };
-    return { backgroundColor: '#fee2e2', color: '#991b1b' };
-  };
 
   if (!authReady) {
     return (
@@ -351,15 +350,12 @@ export default function RADashboard() {
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>
+    <Box sx={dashboardShellSx} className="dashboard-fade-in">
       {/* Top Navigation Header */}
       <Box sx={{ 
-        background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
-        color: '#fff',
+        ...dashboardHeaderSx,
         px: 4,
         py: 2.5,
-        borderBottom: '2px solid #1a5a8e',
-        boxShadow: '0 4px 12px rgba(15, 76, 117, 0.15)',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
@@ -409,33 +405,15 @@ export default function RADashboard() {
       </Box>
 
       {/* Main Content Area */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 1.5, bgcolor: '#f0f4f8' }}>
+      <Box sx={dashboardContentSx}>
         {/* Page Title */}
-        <Box sx={{ mb: 2 }}>
+        <Box sx={dashboardIntroSx}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 0.5 }}>
             <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#0f4c75' }}>
               My Assigned Territories
             </Typography>
-            <Box sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0.5,
-              px: 2.5,
-              py: 1,
-              backgroundColor: '#dbeafe',
-              border: '1px solid #60a5fa',
-              borderRadius: '20px',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              color: '#2563eb'
-            }}>
-              <Box sx={{
-                width: 6,
-                height: 6,
-                backgroundColor: '#2563eb',
-                borderRadius: '50%',
-                animation: 'pulse 2s infinite'
-              }} />
+            <Box sx={liveBadgeSx}>
+              <span className="dashboard-live-dot" />
               Live Updates Active
             </Box>
           </Box>
@@ -445,57 +423,41 @@ export default function RADashboard() {
         </Box>
 
         {/* Main Table Card */}
-        <Box sx={{
-          bgcolor: '#fff',
-          border: '1px solid #e2e8f0',
-          borderRadius: '12px',
-          overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(15,76,117,0.10)',
-          display: 'flex',
-          flexDirection: 'column',
-          height: 'calc(100% - 60px)',
-          maxWidth: '100%'
-        }}>
+        <Box sx={{ ...dashboardTableCardSx, height: 'calc(100% - 60px)', maxWidth: '100%' }}>
           <Box sx={{
             p: 2,
-            bgcolor: '#f8fafc',
+            bgcolor: 'rgba(248, 250, 252, 0.92)',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center'
+            alignItems: 'center',
+            gap: 1.25,
+            flexWrap: 'wrap'
           }}>
             <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f4c75' }}>
               Your Assigned Territories ({assignments?.length || 0})
             </Typography>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
               <TextField
                 label="Search Constituency or State"
                 variant="outlined"
                 size="small"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                sx={{ minWidth: 220 }}
+                sx={dashboardSearchSx}
               />
-              <FormControl size="small" sx={{ minWidth: 140 }}>
+              <FormControl size="small" sx={dashboardControlSx}>
                 <InputLabel>State</InputLabel>
-                <Select value={filterState} label="State" onChange={(event) => setFilterState(event.target.value)}>
+                <Select value={filterState} label="State" onChange={(event) => setFilterState(event.target.value)} sx={dashboardControlSx}>
                   <MenuItem value="All">All States</MenuItem>
                   {uniqueStates.map((state) => (
                     <MenuItem key={state} value={state}>{state}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
-              <FormControl size="small" sx={{ minWidth: 140 }}>
-                <InputLabel>Status</InputLabel>
-                <Select value={filterStatus} label="Status" onChange={(event) => setFilterStatus(event.target.value)}>
-                  <MenuItem value="All">Status</MenuItem>
-                  <MenuItem value="Active">Active</MenuItem>
-                  <MenuItem value="Inactive">Inactive</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 170 }}>
+              <FormControl size="small" sx={dashboardControlSx}>
                 <InputLabel>Sync Status</InputLabel>
-                <Select value={filterSyncStatus} label="Sync Status" onChange={(event) => setFilterSyncStatus(event.target.value)}>
+                <Select value={filterSyncStatus} label="Sync Status" onChange={(event) => setFilterSyncStatus(event.target.value)} sx={dashboardControlSx}>
                   <MenuItem value="All">All Sync Status</MenuItem>
                   <MenuItem value="ECI = TOOL">ECI = TOOL</MenuItem>
                   <MenuItem value="ECI > TOOL">ECI &gt; TOOL</MenuItem>
@@ -503,29 +465,17 @@ export default function RADashboard() {
                   <MenuItem value="Not Started">Not Started</MenuItem>
                 </Select>
               </FormControl>
-              <FormControl size="small" sx={{ minWidth: 170 }}>
+              <FormControl size="small" sx={dashboardControlSx}>
                 <InputLabel>Sort</InputLabel>
-                <Select value={sortBy} label="Sort" onChange={(event) => setSortBy(event.target.value)}>
+                <Select value={sortBy} label="Sort" onChange={(event) => setSortBy(event.target.value)} sx={dashboardControlSx}>
                   <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
                   <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
-                  <MenuItem value="sync-status">Round Difference</MenuItem>
+                  <MenuItem value="round-diff">Round Difference</MenuItem>
                 </Select>
               </FormControl>
-              <Box sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 2.5,
-                py: 1.2,
-                backgroundColor: '#e0f2fe',
-                border: '1px solid #7dd3fc',
-                borderRadius: '8px',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                color: '#0c4a6e'
-              }}>
+              <Box sx={liveBadgeSx}>
                 <InfoIcon sx={{ fontSize: '1rem' }} />
-                Supabase realtime connected
+                {getSortLabel(sortBy)}
               </Box>
             </Box>
           </Box>
@@ -564,36 +514,33 @@ export default function RADashboard() {
               </Typography>
             </Box>
           ) : (
-            <TableContainer sx={{ flex: 1, overflow: 'auto' }}>
+            <TableContainer sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
               <Table stickyHeader>
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell sx={dashboardTableHeadCellSx}>
                       State
                     </TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
-                      ECI ID
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell sx={dashboardTableHeadCellSx}>
                       Constituency
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>
                       ECI Round
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>
                       Tool Round
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>
                       Sync Status
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>
                       ECI / Tool
                       Activity
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>
                       ECI Last Updated
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', color: '#64748b', py: 2 }}>
+                    <TableCell align="center" sx={dashboardTableHeadCellSx}>
                       ECI Lag
                     </TableCell>
                   </TableRow>
@@ -605,17 +552,10 @@ export default function RADashboard() {
                     return (
                       <TableRow
                         key={row.id}
-                        sx={{
-                          '&:hover': { bgcolor: '#f8fafc' },
-                          transition: 'all 0.2s ease',
-                          borderBottom: '1px solid #e2e8f0'
-                        }}
+                        sx={dashboardTableRowSx}
                       >
                         <TableCell sx={{ py: 1, color: '#64748b' }}>
                           {row.states?.name}
-                        </TableCell>
-                        <TableCell sx={{ py: 1, color: '#64748b' }}>
-                          {row.eci_id ?? '--'}
                         </TableCell>
                         <TableCell sx={{ py: 1, fontWeight: 600, color: '#0f4c75' }}>
                           {row.constituencyName}
@@ -653,13 +593,13 @@ export default function RADashboard() {
                             borderRadius: '6px',
                             fontWeight: 700,
                             fontSize: '0.85rem',
-                            ...getSyncStatusChip(row.syncStatus)
+                            ...getSyncStatusPalette(row.syncStatus)
                           }}>
                             {row.syncStatus}
                             {row.syncStatus !== 'Not Started' && (
                               <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
                                 <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
-                                <span>{getSyncStatusDelta(row.election.eci_round ?? 0, row.election.tool_round ?? 0)}</span>
+                                <span>{row.roundDifference}</span>
                               </Box>
                             )}
                           </Box>
@@ -688,7 +628,7 @@ export default function RADashboard() {
                             sx={{
                               fontWeight: 700,
                               fontFamily: 'monospace',
-                              ...getLagChip(row.lagSeconds),
+                              ...getLagPalette(row.lagSeconds),
                             }}
                           />
                         </TableCell>
@@ -702,14 +642,6 @@ export default function RADashboard() {
         </Box>
       </Box>
 
-      <style>
-        {`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-          }
-        `}
-      </style>
     </Box>
   );
 }

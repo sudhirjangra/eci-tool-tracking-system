@@ -1,3 +1,4 @@
+import { pickLatestElectionRow } from './electionMetrics';
 import { supabase } from './supabase';
 
 const ELECTION_DATA_SELECT = `
@@ -29,10 +30,17 @@ export async function fetchConstituenciesWithElectionData({ selectClause, buildC
 
   if (electionError) throw electionError;
 
-  const electionByConstituencyId = new Map((electionRows || []).map((row) => [row.constituency_id, row]));
+  const electionByConstituencyId = new Map();
+  for (const electionRow of electionRows || []) {
+    const existingRows = electionByConstituencyId.get(electionRow.constituency_id) || [];
+    existingRows.push(electionRow);
+    electionByConstituencyId.set(electionRow.constituency_id, existingRows);
+  }
 
   return rows.map((row) => ({
     ...row,
-    election_data: electionByConstituencyId.has(row.id) ? [electionByConstituencyId.get(row.id)] : [],
+    election_data: electionByConstituencyId.has(row.id)
+      ? [pickLatestElectionRow(electionByConstituencyId.get(row.id))].filter(Boolean)
+      : [],
   }));
 }

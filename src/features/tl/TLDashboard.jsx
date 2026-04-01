@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
 import {
+  compareConstituencyNames,
+  compareRoundDifference,
   getActivityFlags,
   getConstituencyName,
   getLagBucket,
@@ -16,6 +18,21 @@ import {
   getSortTimestamp,
   pickLatestElectionRow,
 } from '../../lib/electionMetrics';
+import {
+  dashboardContentSx,
+  dashboardControlSx,
+  dashboardHeaderSx,
+  dashboardIntroSx,
+  dashboardSearchSx,
+  dashboardShellSx,
+  dashboardTableCardSx,
+  dashboardTableHeadCellSx,
+  dashboardTableRowSx,
+  getLagPalette,
+  getSortLabel,
+  getStatusPalette,
+  getSyncStatusPalette,
+} from '../../lib/dashboardUi';
 import CreateRAModal from './CreateRAModal';
 import DelegateMapModal from './DelegateMapModal';
 import {
@@ -64,14 +81,14 @@ export default function TLDashboard() {
   const [selectedRAForEdit, setSelectedRAForEdit] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [searchRA, setSearchRA] = useState('');
+  const deferredSearchRA = useDeferredValue(searchRA);
   const [filterRA, setFilterRA] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   const [filterSyncStatus, setFilterSyncStatus] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
   const [mapSearch, setMapSearch] = useState('');
+  const deferredMapSearch = useDeferredValue(mapSearch);
   const [mapState, setMapState] = useState('');
   const [mapRA, setMapRA] = useState('All');
-  const [mapStatus, setMapStatus] = useState('All');
   const [mapSyncStatus, setMapSyncStatus] = useState('All');
   const [mapLag, setMapLag] = useState('');
   const [mapSortBy, setMapSortBy] = useState('lag-desc');
@@ -221,7 +238,7 @@ export default function TLDashboard() {
   }, [myConstituencies]);
 
   const filteredMyConstituencies = useMemo(() => {
-    const query = mapSearch.trim().toLowerCase();
+    const query = (deferredMapSearch || '').trim().toLowerCase();
     const rows = (myConstituencies || []).map((constituency) => {
       const candidate = pickLatestElectionRow(constituency.election_data) || constituency.election_data?.[0] || {};
       const cached = electionCacheRef.current.get(constituency.id) || {};
@@ -288,32 +305,30 @@ export default function TLDashboard() {
         mapRA === 'All' ||
         (mapRA === 'Unassigned' && !row.assigned_ra_id) ||
         row.assigned_ra_id === mapRA;
-      const matchesStatus = mapStatus === 'All' || row.status === mapStatus;
       const matchesSyncStatus = mapSyncStatus === 'All' || row.syncStatus === mapSyncStatus;
       const matchesLag = !mapLag || row.lagBucket === mapLag;
 
-      return matchesSearch && matchesState && matchesRA && matchesStatus && matchesSyncStatus && matchesLag;
+      return matchesSearch && matchesState && matchesRA && matchesSyncStatus && matchesLag;
     });
 
     rows.sort((left, right) => {
       if (mapSortBy === 'lag-desc') {
-        return (right.lagSeconds ?? -1) - (left.lagSeconds ?? -1);
+        return ((right.lagSeconds ?? -1) - (left.lagSeconds ?? -1)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
       if (mapSortBy === 'lag-asc') {
-        return (left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER);
+        return ((left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
-      if (mapSortBy === 'sync-status') {
-        const syncOrder = { 'ECI = TOOL': 0, 'Not Started': 1, 'ECI > TOOL': 2, 'ECI < TOOL': 3 };
-        return (syncOrder[left.syncStatus] ?? 99) - (syncOrder[right.syncStatus] ?? 99);
+      if (mapSortBy === 'round-diff') {
+        return compareRoundDifference(left.syncDelta, right.syncDelta) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
 
-      return (right.syncDelta ?? 0) - (left.syncDelta ?? 0);
+      return compareConstituencyNames(left.constituencyName, right.constituencyName);
     });
 
     return rows;
-  }, [mapLag, mapRA, mapSearch, mapSortBy, mapState, mapStatus, mapSyncStatus, myConstituencies, now]);
+  }, [deferredMapSearch, mapLag, mapRA, mapSortBy, mapState, mapSyncStatus, myConstituencies, now]);
 
   const raOptions = useMemo(() => {
     return (myRAs || []).map((ra) => ({
@@ -323,52 +338,28 @@ export default function TLDashboard() {
   }, [myRAs]);
 
   const raPerformanceRows = useMemo(() => {
-    const query = searchRA.trim().toLowerCase();
+    const query = (deferredSearchRA || '').trim().toLowerCase();
     const rows = filteredMyConstituencies.filter((row) => {
       const assignedRA = row.assigned_ra_id ? (myRAs || []).find((ra) => ra.id === row.assigned_ra_id) : null;
       const raLabel = assignedRA ? `${assignedRA.name || ''} ${assignedRA.email || ''}`.trim().toLowerCase() : 'unassigned';
       const matchesSearch = !query || raLabel.includes(query) || row.constituencyName.toLowerCase().includes(query);
       const matchesRA = !filterRA || row.assigned_ra_id === filterRA;
-      const matchesStatus = !filterStatus || row.status === filterStatus;
       const matchesSync = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
-      return matchesSearch && matchesRA && matchesStatus && matchesSync;
+      return matchesSearch && matchesRA && matchesSync;
     });
 
     rows.sort((left, right) => {
       if (sortBy === 'lag-asc') {
-        return (left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER);
+        return ((left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
-      if (sortBy === 'sync-status') {
-        const syncOrder = { 'ECI = TOOL': 0, 'Not Started': 1, 'ECI > TOOL': 2, 'ECI < TOOL': 3 };
-        return (syncOrder[left.syncStatus] ?? 99) - (syncOrder[right.syncStatus] ?? 99);
+      if (sortBy === 'round-diff') {
+        return compareRoundDifference(left.syncDelta, right.syncDelta) || compareConstituencyNames(left.constituencyName, right.constituencyName);
       }
-      return (right.lagSeconds ?? -1) - (left.lagSeconds ?? -1);
+      return ((right.lagSeconds ?? -1) - (left.lagSeconds ?? -1)) || compareConstituencyNames(left.constituencyName, right.constituencyName);
     });
 
     return rows;
-  }, [filterRA, filterStatus, filterSyncStatus, filteredMyConstituencies, myRAs, searchRA, sortBy]);
-
-  const getLagPalette = (seconds) => {
-    if (seconds === null || seconds === '-' || seconds === undefined) return { bgcolor: '#e2e8f0', color: '#64748b' };
-    if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
-    if (seconds <= 120) return { bgcolor: '#fef3c7', color: '#92400e' };
-    return { bgcolor: '#fee2e2', color: '#991b1b' };
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Active': return { bgcolor: '#d1fae5', color: '#047857' };
-      case 'Inactive': return { bgcolor: '#fee2e2', color: '#991b1b' };
-      default: return { bgcolor: '#e2e8f0', color: '#64748b' };
-    }
-  };
-
-  const getSyncStatusColor = (status) => {
-    if (status === 'ECI = TOOL') return { bgcolor: '#d1fae5', color: '#047857' };
-    if (status === 'Not Started') return { bgcolor: '#e2e8f0', color: '#64748b' };
-    if (status === 'ECI > TOOL') return { bgcolor: '#fee2e2', color: '#991b1b' };
-    return { bgcolor: '#fef3c7', color: '#92400e' };
-  };
+  }, [deferredSearchRA, filterRA, filterSyncStatus, filteredMyConstituencies, myRAs, sortBy]);
 
   const handleDeleteRA = async (raId, email, name) => {
     const displayName = name || email;
@@ -401,15 +392,12 @@ export default function TLDashboard() {
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>
+    <Box sx={dashboardShellSx} className="dashboard-fade-in">
       {/* Top Navigation Header */}
       <Box sx={{ 
-        background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
-        color: '#fff',
+        ...dashboardHeaderSx,
         px: 4,
         py: 2.5,
-        borderBottom: '2px solid #1a5a8e',
-        boxShadow: '0 4px 12px rgba(15, 76, 117, 0.15)',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
@@ -498,7 +486,7 @@ export default function TLDashboard() {
       </Box>
 
       {/* Main Content Area */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 1.5 }}>
+      <Box sx={dashboardContentSx}>
         {activeTab === 'manage-ras' && (
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
@@ -639,8 +627,8 @@ export default function TLDashboard() {
         )}
 
         {activeTab === 'ra-status' && (
-          <Box>
-            <Box sx={{ mb: 2 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+            <Box sx={dashboardIntroSx}>
               <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#0f4c75', mb: 0.5 }}>
                 RA Performance Dashboard
               </Typography>
@@ -650,12 +638,12 @@ export default function TLDashboard() {
             </Box>
 
             {/* Filters */}
-            <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Box sx={{ ...dashboardTableCardSx, ...dashboardIntroSx, mb: 2, p: 1.5, flexDirection: 'row', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               <TextField
                 label="Search RA"
                 variant="outlined"
                 size="small"
-                sx={{ minWidth: 200 }}
+                sx={dashboardSearchSx}
                 value={searchRA}
                 onChange={e => setSearchRA(e.target.value)}
               />
@@ -664,7 +652,7 @@ export default function TLDashboard() {
                 value={filterRA}
                 onChange={e => setFilterRA(e.target.value)}
                 size="small"
-                sx={{ minWidth: 150, background: '#fff' }}
+                sx={dashboardControlSx}
                 renderValue={selected => {
                   if (!selected) return 'Filter by Assigned RA';
                   const found = raOptions.find((r) => r.id === selected);
@@ -678,23 +666,10 @@ export default function TLDashboard() {
               </Select>
               <Select
                 displayEmpty
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                size="small"
-                sx={{ minWidth: 160, background: '#fff' }}
-                renderValue={selected => selected || 'Filter by Status'}
-              >
-                <MenuItem value=""><em>All Status</em></MenuItem>
-                <MenuItem value="Active">Active</MenuItem>
-                <MenuItem value="Inactive">Inactive</MenuItem>
-                <MenuItem value="No Data">No Data</MenuItem>
-              </Select>
-              <Select
-                displayEmpty
                 value={filterSyncStatus}
                 onChange={e => setFilterSyncStatus(e.target.value)}
                 size="small"
-                sx={{ minWidth: 170, background: '#fff' }}
+                sx={dashboardControlSx}
                 renderValue={selected => selected || 'Sync Status'}
               >
                 <MenuItem value="All"><em>All Sync Status</em></MenuItem>
@@ -708,19 +683,12 @@ export default function TLDashboard() {
                 value={sortBy}
                 onChange={e => setSortBy(e.target.value)}
                 size="small"
-                sx={{ minWidth: 160, background: '#fff' }}
-                renderValue={selected => {
-                  const labels = {
-                    'lag-desc': 'Highest ECI Lag',
-                    'lag-asc': 'Lowest ECI Lag',
-                    'sync-status': 'Round Difference',
-                  };
-                  return labels[selected] || 'Highest ECI Lag';
-                }}
+                sx={dashboardControlSx}
+                renderValue={selected => getSortLabel(selected)}
               >
                 <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
                 <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
-                <MenuItem value="sync-status">Round Difference</MenuItem>
+                <MenuItem value="round-diff">Round Difference</MenuItem>
               </Select>
             </Box>
 
@@ -734,30 +702,28 @@ export default function TLDashboard() {
                 <Typography sx={{ fontSize: '0.9rem', color: '#94a3b8' }}>Adjust the filters or delegate constituencies to an RA.</Typography>
               </Box>
             ) : (
-              <TableContainer component={Paper} sx={{ bgcolor: '#fff' }}>
+              <TableContainer component={Paper} sx={{ ...dashboardTableCardSx, flex: 1, minHeight: 0, overflow: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                      <TableCell>Research Analyst</TableCell>
-                      <TableCell>State</TableCell>
-                      <TableCell>ECI ID</TableCell>
-                      <TableCell>Constituency</TableCell>
-                      <TableCell align="center">ECI Round</TableCell>
-                      <TableCell align="center">Tool Round</TableCell>
-                      <TableCell align="center">Sync Status</TableCell>
-                      <TableCell align="center">Activity</TableCell>
-                      <TableCell align="center">ECI Last Updated</TableCell>
-                      <TableCell align="center">ECI Lag</TableCell>
+                      <TableCell sx={dashboardTableHeadCellSx}>Research Analyst</TableCell>
+                      <TableCell sx={dashboardTableHeadCellSx}>State</TableCell>
+                      <TableCell sx={dashboardTableHeadCellSx}>Constituency</TableCell>
+                      <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Round</TableCell>
+                      <TableCell align="center" sx={dashboardTableHeadCellSx}>Tool Round</TableCell>
+                      <TableCell align="center" sx={dashboardTableHeadCellSx}>Sync Status</TableCell>
+                      <TableCell align="center" sx={dashboardTableHeadCellSx}>Activity</TableCell>
+                      <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Last Updated</TableCell>
+                      <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Lag</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {raPerformanceRows.map((item) => {
                       const assignedRA = item.assigned_ra_id ? (myRAs || []).find((ra) => ra.id === item.assigned_ra_id) : null;
                       return (
-                        <TableRow key={item.id} hover>
+                        <TableRow key={item.id} sx={dashboardTableRowSx}>
                           <TableCell>{assignedRA ? (assignedRA.name ? `${assignedRA.name} - ${assignedRA.email}` : assignedRA.email) : 'Unassigned'}</TableCell>
                           <TableCell>{item.states?.name || 'Unknown'}</TableCell>
-                          <TableCell>{item.eci_id || '—'}</TableCell>
                           <TableCell>{item.constituencyName}</TableCell>
                           <TableCell align="center">
                             <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{item.election.eci_round ?? '--'}</Typography>
@@ -774,7 +740,7 @@ export default function TLDashboard() {
                               borderRadius: '4px',
                               fontWeight: 600,
                               fontSize: '0.75rem',
-                              ...getSyncStatusColor(item.syncStatus)
+                              ...getSyncStatusPalette(item.syncStatus)
                             }}>
                               {item.syncStatus}
                               {item.syncStatus !== 'Not Started' && (
@@ -795,7 +761,7 @@ export default function TLDashboard() {
                                 <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.toolActive ? '#10b981' : '#ef4444' }} />
                                 <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
                               </Box>
-                              <Box sx={{ px: 1.25, py: 0.4, borderRadius: '999px', fontWeight: 700, ...getStatusColor(item.status) }}>
+                              <Box sx={{ px: 1.25, py: 0.4, borderRadius: '999px', fontWeight: 700, ...getStatusPalette(item.status) }}>
                                 {item.status}
                               </Box>
                             </Box>

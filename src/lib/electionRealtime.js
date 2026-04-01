@@ -4,17 +4,23 @@ function getPayloadRecord(payload) {
 }
 
 export function createBufferedQueryPatchScheduler(queryClient, queryKey, patcher, delay = 150) {
-  let pending = [];
+  let pendingByConstituency = new Map();
+  let pendingWithoutKey = [];
   let timer = null;
 
   const flush = () => {
-    if (!pending.length) {
+    const batch = [
+      ...pendingByConstituency.values(),
+      ...pendingWithoutKey,
+    ];
+
+    if (!batch.length) {
       timer = null;
       return;
     }
 
-    const batch = pending;
-    pending = [];
+    pendingByConstituency = new Map();
+    pendingWithoutKey = [];
     timer = null;
 
     queryClient.setQueryData(queryKey, (previous) => batch.reduce((rows, payload) => patcher(rows, payload), previous));
@@ -22,7 +28,13 @@ export function createBufferedQueryPatchScheduler(queryClient, queryKey, patcher
 
   return {
     push(payload) {
-      pending.push(payload);
+      const record = getPayloadRecord(payload);
+      if (record?.constituency_id) {
+        pendingByConstituency.set(record.constituency_id, payload);
+      } else {
+        pendingWithoutKey.push(payload);
+      }
+
       if (timer !== null) return;
       timer = setTimeout(flush, delay);
     },

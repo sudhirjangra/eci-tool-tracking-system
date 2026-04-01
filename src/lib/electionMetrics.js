@@ -77,7 +77,30 @@ export function getSyncStatusDelta(eciRound = 0, toolRound = 0) {
 
 export function getConstituencyName(row) {
   const name = row?.tool_name?.trim();
-  return name || 'Unmapped';
+  const eciId = row?.eci_id;
+
+  if (!name) {
+    return eciId ? `${eciId} - Unmapped` : 'Unmapped';
+  }
+
+  return eciId ? `${eciId} - ${name}` : name;
+}
+
+export function compareConstituencyNames(left = '', right = '') {
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+export function compareRoundDifference(leftDelta = 0, rightDelta = 0) {
+  const deltaGap = Math.abs(rightDelta) - Math.abs(leftDelta);
+  if (deltaGap !== 0) return deltaGap;
+
+  const signedGap = rightDelta - leftDelta;
+  if (signedGap !== 0) return signedGap;
+
+  return 0;
 }
 
 export function getLagBucket(seconds) {
