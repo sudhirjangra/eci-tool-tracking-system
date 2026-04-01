@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
-import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
+import { createBufferedQueryPatchScheduler, patchNestedElectionRows, subscribeToElectionData } from '../../lib/electionRealtime';
 import {
   compareConstituencyNames,
   compareRoundDifference,
@@ -214,23 +214,20 @@ export default function RADashboard() {
 
     // Create unique channel name with timestamp and user ID to avoid conflicts
     const channelName = `ra-election-${currentUser.id}-${Date.now()}`;
-    const channel = supabase.channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+    const channel = subscribeToElectionData({
+      supabase,
+      channelName,
+      queryClient,
+      recoveryQueryKeys: [['ra-assignments', currentUser.id]],
+      logPrefix: 'RADashboard',
+      onPayload: (payload) => {
         const constituencyId = payload?.new?.constituency_id || payload?.old?.constituency_id;
         if (!constituencyId || !trackedConstituencyIdsRef.current.has(constituencyId)) {
           return;
         }
         scheduler.push(payload);
-      })
-      .subscribe((status, err) => {
-        if (err) {
-          console.warn(`[RADashboard] Real-time subscription error: ${err.message}`);
-        } else if (status === 'SUBSCRIBED') {
-          console.log(`[RADashboard] Real-time subscription active: ${channelName}`);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`[RADashboard] Channel error: ${channelName}`);
-        }
-      });
+      },
+    });
 
     return () => {
       scheduler.dispose();

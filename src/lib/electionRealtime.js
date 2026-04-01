@@ -3,6 +3,18 @@ function getPayloadRecord(payload) {
   return next?.constituency_id ? next : null;
 }
 
+function invalidateRecoveryQueries(queryClient, recoveryQueryKeys) {
+  if (!queryClient || !Array.isArray(recoveryQueryKeys) || recoveryQueryKeys.length === 0) {
+    return;
+  }
+
+  Promise.all(
+    recoveryQueryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey, refetchType: 'active' })),
+  ).catch((error) => {
+    console.warn('[Realtime] Failed to refresh queries after channel state change', error);
+  });
+}
+
 export function createBufferedQueryPatchScheduler(queryClient, queryKey, patcher, delay = 150) {
   let pendingByConstituency = new Map();
   let pendingWithoutKey = [];
@@ -112,4 +124,60 @@ export function patchNestedElectionById(rows, payload, fieldName = 'election') {
   };
 
   return nextRows;
+}
+
+export function subscribeToElectionData({
+  supabase,
+  channelName,
+  queryClient,
+  recoveryQueryKeys = [],
+  onPayload,
+  logPrefix = 'Realtime',
+}) {
+  let hasSubscribedOnce = false;
+  let refreshScheduled = false;
+
+  const scheduleRecoveryRefresh = () => {
+    if (refreshScheduled) {
+      return;
+    }
+
+    refreshScheduled = true;
+    Promise.resolve().then(() => {
+      refreshScheduled = false;
+      invalidateRecoveryQueries(queryClient, recoveryQueryKeys);
+    });
+  };
+
+  return supabase
+    .channel(channelName)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+      try {
+        onPayload?.(payload);
+      } catch (error) {
+        console.error(`[${logPrefix}] Failed to process realtime payload`, error);
+        scheduleRecoveryRefresh();
+      }
+    })
+    .subscribe((status, err) => {
+      if (err) {
+        console.warn(`[${logPrefix}] Real-time subscription error: ${err.message}`);
+        scheduleRecoveryRefresh();
+        return;
+      }
+
+      if (status === 'SUBSCRIBED') {
+        console.log(`[${logPrefix}] Real-time subscription active: ${channelName}`);
+        if (hasSubscribedOnce) {
+          scheduleRecoveryRefresh();
+        }
+        hasSubscribedOnce = true;
+        return;
+      }
+
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.warn(`[${logPrefix}] Channel state changed: ${status}`);
+        scheduleRecoveryRefresh();
+      }
+    });
 }

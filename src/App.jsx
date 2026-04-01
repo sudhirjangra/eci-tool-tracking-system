@@ -1,8 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box } from '@mui/material';
@@ -18,40 +16,14 @@ const queryClient = new QueryClient({
       staleTime: 5 * 60 * 1000,
       gcTime: 30 * 60 * 1000,
       refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      retry: 1,
+      refetchOnReconnect: true,
+      retry: 2,
     },
   },
 });
 
-const queryPersister = typeof window !== 'undefined'
-  ? createSyncStoragePersister({
-      storage: window.localStorage,
-      key: 'election-dashboard-query-cache',
-      throttleTime: 1000,
-    })
-  : null;
-
 function QueryProviders({ children }) {
-  if (!queryPersister) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-  }
-
-  return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister: queryPersister,
-        maxAge: 5 * 60 * 1000,
-        buster: '2026-04-01-live-cache-v2',
-      }}
-      onSuccess={() => {
-        queryClient.resumePausedMutations().catch(() => undefined);
-      }}
-    >
-      {children}
-    </PersistQueryClientProvider>
-  );
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
 function App() {

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { ACTIVITY_THRESHOLD_MS, pickLatestElectionRow, toMillis } from '../../lib/electionMetrics';
-import { createBufferedQueryPatchScheduler, patchNestedElectionById } from '../../lib/electionRealtime';
+import { createBufferedQueryPatchScheduler, patchNestedElectionById, subscribeToElectionData } from '../../lib/electionRealtime';
 import AdminLiveMonitor from './AdminLiveMonitor';
 import ViewUserMapModal from './ViewUserMapModal';
 import ExpandableRATableRow from './ExpandableRATableRow';
@@ -104,19 +104,16 @@ export default function AdminDashboard() {
 
     // Create unique channel name with timestamp to avoid conflicts
     const channelName = `admin-nav-election-${Date.now()}`;
-    const channel = supabase.channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+    const channel = subscribeToElectionData({
+      supabase,
+      channelName,
+      queryClient,
+      recoveryQueryKeys: [['admin-live-nav-stats']],
+      logPrefix: 'AdminDashboard',
+      onPayload: (payload) => {
         scheduler.push(payload);
-      })
-      .subscribe((status, err) => {
-        if (err) {
-          console.warn(`[AdminDashboard] Real-time subscription error: ${err.message}`);
-        } else if (status === 'SUBSCRIBED') {
-          console.log(`[AdminDashboard] Real-time subscription active: ${channelName}`);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`[AdminDashboard] Channel error: ${channelName}`);
-        }
-      });
+      },
+    });
 
     return () => {
       scheduler.dispose();

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
-import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
+import { createBufferedQueryPatchScheduler, patchNestedElectionRows, subscribeToElectionData } from '../../lib/electionRealtime';
 import {
   compareConstituencyNames,
   compareRoundDifference,
@@ -196,19 +196,16 @@ export default function AdminLiveMonitor() {
 
     // Create unique channel name with timestamp to avoid conflicts
     const channelName = `admin-live-election-${Date.now()}`;
-    const channel = supabase.channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'election_data' }, (payload) => {
+    const channel = subscribeToElectionData({
+      supabase,
+      channelName,
+      queryClient,
+      recoveryQueryKeys: [['admin-live-feed']],
+      logPrefix: 'AdminLiveMonitor',
+      onPayload: (payload) => {
         scheduler.push(payload);
-      })
-      .subscribe((status, err) => {
-        if (err) {
-          console.warn(`[AdminLiveMonitor] Real-time subscription error: ${err.message}`);
-        } else if (status === 'SUBSCRIBED') {
-          console.log(`[AdminLiveMonitor] Real-time subscription active: ${channelName}`);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`[AdminLiveMonitor] Channel error: ${channelName}`);
-        }
-      });
+      },
+    });
 
     return () => {
       scheduler.dispose();
