@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
 import {
   getActivityFlags,
@@ -9,6 +10,7 @@ import {
   getLagBucket,
   getLagSeconds,
   getSyncStatus,
+  getSyncStatusDelta,
   formatLag,
   formatTimestamp,
   getSortTimestamp,
@@ -43,8 +45,10 @@ export default function RADashboard() {
   const [search, setSearch] = useState('');
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [sortBy, setSortBy] = useState('name');
+  const [filterSyncStatus, setFilterSyncStatus] = useState('All');
+  const [sortBy, setSortBy] = useState('lag-desc');
   const [now, setNow] = useState(Date.now());
+  const [authReady, setAuthReady] = useState(false);
   const trackedConstituencyIdsRef = useRef(new Set());
   const electionCacheRef = useRef(new Map());
 
@@ -54,10 +58,32 @@ export default function RADashboard() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setCurrentUser(data.user);
-      if (!data.user) navigate('/login');
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) return;
+      const nextUser = data.session?.user ?? null;
+      setCurrentUser(nextUser);
+      setAuthReady(true);
+      if (!nextUser) {
+        navigate('/login', { replace: true });
+      }
     });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      const nextUser = session?.user ?? null;
+      setCurrentUser(nextUser);
+      setAuthReady(true);
+      if (!nextUser) {
+        navigate('/login', { replace: true });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
   }, [navigate]);
 
   // Fetch user name from user_roles
@@ -79,39 +105,26 @@ export default function RADashboard() {
   const { data: assignments, isLoading } = useQuery({
     queryKey: ['ra-assignments', currentUser?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('constituencies')
-        .select(`
-          id, 
+      return fetchConstituenciesWithElectionData({
+        selectClause: `
+          id,
           state_id,
           eci_id,
-          tool_name, 
+          tool_name,
           states(name),
-          assigned_ra_id,
-          election_data(
-            constituency_id,
-            eci_round,
-            tool_round,
-            eci_round_updated_at,
-            tool_round_updated_at,
-            eci_updated_at
-          )
-        `)
-        .eq('assigned_ra_id', currentUser.id)
-        .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false })
-        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .order('tool_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .order('eci_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .limit(1, { foreignTable: 'election_data' });
-
-      if (error) throw error;
-      return data || [];
+          assigned_ra_id
+        `,
+        buildConstituencyQuery: (query) => query
+          .eq('assigned_ra_id', currentUser.id)
+          .order('states(name)', { ascending: true })
+          .order('tool_name', { ascending: true, nullsFirst: false }),
+      });
     },
     enabled: !!currentUser?.id,
     staleTime: 30000,
     gcTime: 60 * 60 * 1000,
     refetchInterval: 30000,
+    refetchOnMount: 'always',
   });
 
   const trackedConstituencyIds = useMemo(() => {
@@ -287,15 +300,11 @@ export default function RADashboard() {
       rows = rows.filter((assignment) => assignment.activity.status === filterStatus);
     }
 
+    if (filterSyncStatus !== 'All') {
+      rows = rows.filter((assignment) => assignment.syncStatus === filterSyncStatus);
+    }
+
     rows.sort((left, right) => {
-      if (sortBy === 'updated-desc') {
-        return getSortTimestamp(right.election.eci_updated_at) - getSortTimestamp(left.election.eci_updated_at);
-      }
-
-      if (sortBy === 'updated-asc') {
-        return getSortTimestamp(left.election.eci_updated_at) - getSortTimestamp(right.election.eci_updated_at);
-      }
-
       if (sortBy === 'lag-desc') {
         return (right.lagSeconds ?? -1) - (left.lagSeconds ?? -1);
       }
@@ -304,20 +313,25 @@ export default function RADashboard() {
         return (left.lagSeconds ?? Number.MAX_SAFE_INTEGER) - (right.lagSeconds ?? Number.MAX_SAFE_INTEGER);
       }
 
-      return left.constituencyName.localeCompare(right.constituencyName);
+      if (sortBy === 'sync-status') {
+        const syncOrder = { 'ECI = TOOL': 0, 'Not Started': 1, 'ECI > TOOL': 2, 'ECI < TOOL': 3 };
+        return (syncOrder[left.syncStatus] ?? 99) - (syncOrder[right.syncStatus] ?? 99);
+      }
+
+      return (right.election.eci_round ?? 0) - (right.election.tool_round ?? 0) - ((left.election.eci_round ?? 0) - (left.election.tool_round ?? 0));
     });
 
     return rows;
-  }, [assignments, filterState, filterStatus, now, search, sortBy]);
+  }, [assignments, filterState, filterStatus, filterSyncStatus, now, search, sortBy]);
 
   const uniqueStates = useMemo(() => {
     return [...new Set((assignments || []).map((row) => row.states?.name).filter(Boolean))].sort();
   }, [assignments]);
 
   const getSyncStatusChip = (status) => {
-    if (status === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
+    if (status === 'ECI = TOOL') return { backgroundColor: '#d1fae5', color: '#059669' };
     if (status === 'Not Started') return { backgroundColor: '#f3f4f6', color: '#6b7280' };
-    if (status.startsWith('ECI +')) return { backgroundColor: '#fee2e2', color: '#991b1b' };
+    if (status === 'ECI > TOOL') return { backgroundColor: '#fee2e2', color: '#991b1b' };
     return { backgroundColor: '#fef3c7', color: '#92400e' };
   };
 
@@ -327,6 +341,14 @@ export default function RADashboard() {
     if (seconds <= 300) return { backgroundColor: '#fef3c7', color: '#92400e' };
     return { backgroundColor: '#fee2e2', color: '#991b1b' };
   };
+
+  if (!authReady) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', bgcolor: '#f0f4f8' }}>
+        <Typography sx={{ color: '#0f4c75', fontWeight: 600 }}>Restoring your session...</Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>
@@ -466,19 +488,27 @@ export default function RADashboard() {
               <FormControl size="small" sx={{ minWidth: 140 }}>
                 <InputLabel>Status</InputLabel>
                 <Select value={filterStatus} label="Status" onChange={(event) => setFilterStatus(event.target.value)}>
-                  <MenuItem value="All">All Statuses</MenuItem>
+                  <MenuItem value="All">Status</MenuItem>
                   <MenuItem value="Active">Active</MenuItem>
                   <MenuItem value="Inactive">Inactive</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 170 }}>
+                <InputLabel>Sync Status</InputLabel>
+                <Select value={filterSyncStatus} label="Sync Status" onChange={(event) => setFilterSyncStatus(event.target.value)}>
+                  <MenuItem value="All">All Sync Status</MenuItem>
+                  <MenuItem value="ECI = TOOL">ECI = TOOL</MenuItem>
+                  <MenuItem value="ECI > TOOL">ECI &gt; TOOL</MenuItem>
+                  <MenuItem value="ECI < TOOL">ECI &lt; TOOL</MenuItem>
+                  <MenuItem value="Not Started">Not Started</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 170 }}>
                 <InputLabel>Sort</InputLabel>
                 <Select value={sortBy} label="Sort" onChange={(event) => setSortBy(event.target.value)}>
-                  <MenuItem value="name">Constituency Name</MenuItem>
-                  <MenuItem value="updated-desc">Latest ECI Update</MenuItem>
-                  <MenuItem value="updated-asc">Oldest ECI Update</MenuItem>
                   <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
                   <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
+                  <MenuItem value="sync-status">Round Difference</MenuItem>
                 </Select>
               </FormControl>
               <Box sx={{
@@ -626,6 +656,12 @@ export default function RADashboard() {
                             ...getSyncStatusChip(row.syncStatus)
                           }}>
                             {row.syncStatus}
+                            {row.syncStatus !== 'Not Started' && (
+                              <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
+                                <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
+                                <span>{getSyncStatusDelta(row.election.eci_round ?? 0, row.election.tool_round ?? 0)}</span>
+                              </Box>
+                            )}
                           </Box>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>

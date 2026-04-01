@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { getConstituencyName } from '../../lib/electionMetrics';
 import {
@@ -32,6 +32,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { MapPin, Search } from 'lucide-react';
 
 export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
+  const queryClient = useQueryClient();
   const [selectedState, setSelectedState] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
@@ -88,6 +89,15 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
     }
   }, [constituencies, tl?.id]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedState('');
+      setSearchTerm('');
+      setError(null);
+      setSelectedIds(new Set());
+    }
+  }, [isOpen]);
+
   if (!tl) return null;
 
   const handleToggle = (id) => {
@@ -142,6 +152,12 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
         const { error } = await supabase.from('constituencies').update({ assigned_tl_id: null }).in('id', idsToUnassign);
         if (error) throw error;
       }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['assignable-constituencies', tl.id] }),
+        queryClient.invalidateQueries({ queryKey: ['team-leaders'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-live-feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-live-nav-stats'] }),
+      ]);
       onSuccess();
     } catch (err) {
       setError(err.message);
@@ -160,8 +176,8 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
 
   const stateStats = states.map(state => {
     const stateConstituencies = (constituencies || []).filter(c => c.states?.name === state);
-    const selectedCount = stateConstituencies.filter(c => selectedIds.has(c.id)).length;
-    return { state, total: stateConstituencies.length, selected: selectedCount };
+    const assignedCount = stateConstituencies.filter(c => c.assigned_tl_id === tl.id).length;
+    return { state, total: stateConstituencies.length, assigned: assignedCount };
   });
 
   return (
@@ -201,7 +217,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
           </Box>
 
           <List sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-            {stateStats.map(({ state, total, selected }) => (
+            {stateStats.map(({ state, total, assigned }) => (
               <ListItemButton
                 key={state}
                 selected={selectedState === state}
@@ -218,7 +234,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
               >
                 <ListItemText
                   primary={state}
-                  secondary={`${selected}/${total}`}
+                  secondary={`${assigned}/${total} assigned`}
                   secondaryTypographyProps={{
                     sx: {
                       color: selectedState === state ? 'rgba(255,255,255,0.7)' : '#666',

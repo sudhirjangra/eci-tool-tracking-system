@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { ACTIVITY_THRESHOLD_MS, pickLatestElectionRow, toMillis } from '../../lib/electionMetrics';
 import { createBufferedQueryPatchScheduler, patchNestedElectionById } from '../../lib/electionRealtime';
 import AdminLiveMonitor from './AdminLiveMonitor';
@@ -77,14 +78,9 @@ export default function AdminDashboard() {
   const { data: liveStatsData } = useQuery({
     queryKey: ['admin-live-nav-stats'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('constituencies')
-        .select('id, state_id, tool_name, election_data(constituency_id, eci_round_updated_at, tool_round_updated_at, eci_updated_at)')
-        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .order('tool_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .order('eci_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .limit(1, { foreignTable: 'election_data' });
-      if (error) throw error;
+      const data = await fetchConstituenciesWithElectionData({
+        selectClause: 'id, state_id, tool_name',
+      });
 
       return (data || []).map((row) => ({
         id: row.id,
@@ -96,6 +92,7 @@ export default function AdminDashboard() {
     staleTime: 30000,
     gcTime: 60 * 60 * 1000,
     refetchInterval: 60000,
+    refetchOnMount: 'always',
   });
 
   useEffect(() => {
@@ -372,7 +369,6 @@ export default function AdminDashboard() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Team Leader</TableCell>
-                    <TableCell>Research Analysts</TableCell>
                     <TableCell align="center">Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -382,9 +378,6 @@ export default function AdminDashboard() {
                     return (
                       <TableRow key={tl.id}>
                         <TableCell>{tl.name ? `${tl.name} (${tl.email})` : tl.email}</TableCell>
-                        <TableCell>
-                          {myRAs.length > 0 ? myRAs.map(ra => ra.name ? `${ra.name} (${ra.email})` : ra.email).join(', ') : <span style={{ color: '#94a3b8' }}>No RAs</span>}
-                        </TableCell>
                         <TableCell align="center">
                           <Button size="small" variant="outlined" startIcon={<EditIcon fontSize="small" />} onClick={() => setSelectedTLForEdit(tl)} sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#cbd5e1', color: '#475569', minWidth: '80px', mr: 0.5 }}>
                             Edit
@@ -472,7 +465,7 @@ export default function AdminDashboard() {
       <ViewUserMapModal isOpen={!!selectedUserForView} onClose={() => setSelectedUserForView(null)} user={selectedUserForView} />
       <CreateTLModal isOpen={isTLModalOpen} onClose={() => setIsTLModalOpen(false)} onSuccess={() => { setIsTLModalOpen(false); refetchTLs(); }} />
       <EditTLModal isOpen={!!selectedTLForEdit} onClose={() => setSelectedTLForEdit(null)} tl={selectedTLForEdit} onSuccess={() => { setSelectedTLForEdit(null); refetchTLs(); }} />
-      <AssignMapModal isOpen={!!selectedTLForMap} onClose={() => setSelectedTLForMap(null)} tl={selectedTLForMap} onSuccess={() => setSelectedTLForMap(null)} />
+      <AssignMapModal isOpen={!!selectedTLForMap} onClose={() => setSelectedTLForMap(null)} tl={selectedTLForMap} onSuccess={() => { setSelectedTLForMap(null); refetchTLs(); queryClient.invalidateQueries({ queryKey: ['admin-live-feed'] }); queryClient.invalidateQueries({ queryKey: ['admin-live-nav-stats'] }); }} />
     </Box>
   );
 }

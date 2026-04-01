@@ -43,7 +43,8 @@ export function getActivityFlags(eciRoundUpdatedAt, toolRoundUpdatedAt, now = Da
   }
   const eciActive = !!eciRoundUpdatedMillis && now - eciRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS;
   const toolActive = !!toolRoundUpdatedMillis && now - toolRoundUpdatedMillis <= ACTIVITY_THRESHOLD_MS;
-  const status = eciActive ? 'Active' : 'Inactive';
+  // Status is Active only when BOTH ECI and TOOL are active
+  const status = eciActive && toolActive ? 'Active' : 'Inactive';
 
   return {
     eciActive,
@@ -60,14 +61,18 @@ export function getSyncStatus(eciRound = 0, toolRound = 0) {
   }
 
   if (delta === 0) {
-    return 'In Sync';
+    return 'ECI = TOOL';
   }
 
   if (delta > 0) {
-    return `ECI +${delta}`;
+    return 'ECI > TOOL';
   }
 
-  return `Tool +${Math.abs(delta)}`;
+  return 'ECI < TOOL';
+}
+
+export function getSyncStatusDelta(eciRound = 0, toolRound = 0) {
+  return eciRound - toolRound;
 }
 
 export function getConstituencyName(row) {

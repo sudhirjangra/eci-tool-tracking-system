@@ -43,7 +43,7 @@ function QueryProviders({ children }) {
       persistOptions={{
         persister: queryPersister,
         maxAge: 5 * 60 * 1000,
-        buster: '2026-03-30-live-cache-v1',
+        buster: '2026-04-01-live-cache-v2',
       }}
       onSuccess={() => {
         queryClient.resumePausedMutations().catch(() => undefined);

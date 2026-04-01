@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../../lib/supabase';
+import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { formatLag, formatTimestamp, getConstituencyName, getLagSeconds, pickLatestElectionRow } from '../../lib/electionMetrics';
 import {
   Box,
@@ -29,37 +29,25 @@ export default function ConstituencyList() {
   const { data: constituencies, isLoading, error } = useQuery({
     queryKey: ['constituencies'],
     queryFn: async () => {
-      const { data: constData, error: constErr } = await supabase
-        .from('constituencies')
-        .select(`
+      return fetchConstituenciesWithElectionData({
+        selectClause: `
           id,
           state_id,
           eci_id,
           tool_name,
-          states (name),
+          states(name),
           assigned_tl_id,
-          assigned_ra_id,
-          election_data(
-            constituency_id,
-            eci_round,
-            tool_round,
-            eci_round_updated_at,
-            tool_round_updated_at,
-            eci_updated_at
-          )
-        `)
-        .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false })
-        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .limit(1, { foreignTable: 'election_data' });
-
-      if (constErr) throw constErr;
-
-      return constData || [];
+          assigned_ra_id
+        `,
+        buildConstituencyQuery: (query) => query
+          .order('states(name)', { ascending: true })
+          .order('tool_name', { ascending: true, nullsFirst: false }),
+      });
     },
     staleTime: 30000,
     gcTime: 60 * 60 * 1000,
     refetchInterval: 60000,
+    refetchOnMount: 'always',
   });
 
   if (isLoading) {

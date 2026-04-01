@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { createBufferedQueryPatchScheduler, patchNestedElectionRows } from '../../lib/electionRealtime';
 import {
   getActivityFlags,
@@ -9,6 +10,7 @@ import {
   getLagBucket,
   getLagSeconds,
   getSyncStatus,
+  getSyncStatusDelta,
   formatLag,
   formatTimestamp,
   getSortTimestamp,
@@ -50,11 +52,34 @@ export default function AdminLiveMonitor() {
   // Get current user
   const [currentUser, setCurrentUser] = useState(null);
   const [managerEmail, setManagerEmail] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setCurrentUser(data.user);
-      if (!data.user) navigate('/login');
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) return;
+      const nextUser = data.session?.user ?? null;
+      setCurrentUser(nextUser);
+      setAuthReady(true);
+      if (!nextUser) {
+        navigate('/login', { replace: true });
+      }
     });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      const nextUser = session?.user ?? null;
+      setCurrentUser(nextUser);
+      setAuthReady(true);
+      if (!nextUser) {
+        navigate('/login', { replace: true });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
   }, [navigate]);
 
   // Fetch reporting person (manager) email
@@ -93,6 +118,7 @@ export default function AdminLiveMonitor() {
   const electionCacheRef = useRef(new Map());
   const [filterState, setFilterState] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
+  const [filterSyncStatus, setFilterSyncStatus] = useState('All');
   const [filterTL, setFilterTL] = useState('All');
   const [filterRA, setFilterRA] = useState('All');
   const [sortBy, setSortBy] = useState('lag-desc');
@@ -104,38 +130,25 @@ export default function AdminLiveMonitor() {
   const { data: rawData, isLoading: loadingData } = useQuery({
     queryKey: ['admin-live-feed'],
     queryFn: async () => {
-      const { data: constData, error: constErr } = await supabase
-        .from('constituencies')
-        .select(`
+      return fetchConstituenciesWithElectionData({
+        selectClause: `
           id,
           state_id,
           eci_id,
           tool_name,
           states(name),
           assigned_tl_id,
-          assigned_ra_id,
-          election_data(
-            constituency_id,
-            eci_round,
-            tool_round,
-            eci_round_updated_at,
-            tool_round_updated_at,
-            eci_updated_at
-          )
-        `)
-        .order('states(name)', { ascending: true })
-        .order('tool_name', { ascending: true, nullsFirst: false })
-        .order('eci_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .order('tool_round_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .order('eci_updated_at', { foreignTable: 'election_data', ascending: false, nullsFirst: false })
-        .limit(1, { foreignTable: 'election_data' });
-
-      if (constErr) throw constErr;
-      return constData || [];
+          assigned_ra_id
+        `,
+        buildConstituencyQuery: (query) => query
+          .order('states(name)', { ascending: true })
+          .order('tool_name', { ascending: true, nullsFirst: false }),
+      });
     },
     staleTime: 30000, // Refetch every 30 seconds as fallback
     gcTime: 60 * 60 * 1000,
     refetchInterval: 30000, // Actively refetch every 30 seconds
+    refetchOnMount: 'always',
   });
 
   // 2. Fetch All User Names and Emails for Translation
@@ -200,7 +213,7 @@ export default function AdminLiveMonitor() {
   // Reset pagination when filters change
   useEffect(() => {
     setPage(0);
-  }, [filterState, filterStatus, filterTL, filterRA, searchTerm, sortBy]);
+  }, [filterState, filterStatus, filterSyncStatus, filterTL, filterRA, searchTerm, sortBy]);
 
   // 5. Process Data & Statuses
   const processedData = useMemo(() => {
@@ -287,27 +300,17 @@ export default function AdminLiveMonitor() {
       
       const matchesState = filterState === 'All' || row.states?.name === filterState;
       const matchesStatus = filterStatus === 'All' || row.status === filterStatus;
+      const matchesSyncStatus = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
       const matchesTL = filterTL === 'All' || row.tlEmail === filterTL;
       const matchesRA = filterRA === 'All' || row.raEmail === filterRA;
 
-      return matchesSearch && matchesState && matchesStatus && matchesTL && matchesRA;
+      return matchesSearch && matchesState && matchesStatus && matchesSyncStatus && matchesTL && matchesRA;
     });
 
     rows.sort((left, right) => {
-      if (sortBy === 'updated-desc') {
-        return getSortTimestamp(right.eciLastUpdatedAt) - getSortTimestamp(left.eciLastUpdatedAt);
-      }
-
-      if (sortBy === 'updated-asc') {
-        return getSortTimestamp(left.eciLastUpdatedAt) - getSortTimestamp(right.eciLastUpdatedAt);
-      }
-
-      if (sortBy === 'name') {
-        return left.constituencyName.localeCompare(right.constituencyName);
-      }
-
-      if (sortBy === 'status') {
-        return left.status.localeCompare(right.status);
+      if (sortBy === 'sync-status') {
+        const syncOrder = { 'ECI = TOOL': 0, 'Not Started': 1, 'ECI > TOOL': 2, 'ECI < TOOL': 3 };
+        return (syncOrder[left.syncStatus] ?? 99) - (syncOrder[right.syncStatus] ?? 99);
       }
 
       if (sortBy === 'lag-asc') {
@@ -318,11 +321,31 @@ export default function AdminLiveMonitor() {
     });
 
     return rows;
-  }, [filterState, filterStatus, filterTL, filterRA, processedData, searchTerm, sortBy]);
+  }, [filterState, filterStatus, filterSyncStatus, filterTL, filterRA, processedData, searchTerm, sortBy]);
 
   const uniqueStates = [...new Set(rawData?.map(r => r.states?.name).filter(Boolean))];
-  const uniqueTLs = [...new Set(processedData.map((row) => row.tlEmail).filter((email) => email && email !== 'Unassigned'))].sort();
-  const uniqueRAs = [...new Set(processedData.map((row) => row.raEmail).filter((email) => email && email !== 'Unassigned'))].sort();
+  const uniqueTLs = useMemo(() => {
+    const options = new Map();
+    processedData.forEach((row) => {
+      if (row.tlEmail && row.tlEmail !== 'Unassigned') {
+        options.set(row.tlEmail, row.tlName && row.tlName !== 'Unassigned' ? `${row.tlName} - ${row.tlEmail}` : row.tlEmail);
+      }
+    });
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [processedData]);
+  const uniqueRAs = useMemo(() => {
+    const options = new Map();
+    processedData.forEach((row) => {
+      if (row.raEmail && row.raEmail !== 'Unassigned') {
+        options.set(row.raEmail, row.raName && row.raName !== 'Unassigned' ? `${row.raName} - ${row.raEmail}` : row.raEmail);
+      }
+    });
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [processedData]);
   
   // Pagination for table
   const paginatedData = useMemo(() => {
@@ -346,11 +369,19 @@ export default function AdminLiveMonitor() {
   };
 
   const getSyncChipStyles = (syncStatus) => {
-    if (syncStatus === 'In Sync') return { backgroundColor: '#d1fae5', color: '#059669' };
+    if (syncStatus === 'ECI = TOOL') return { backgroundColor: '#d1fae5', color: '#059669' };
     if (syncStatus === 'Not Started') return { backgroundColor: '#e2e8f0', color: '#64748b' };
-    if (syncStatus.startsWith('ECI +')) return { backgroundColor: '#fee2e2', color: '#991b1b' };
+    if (syncStatus === 'ECI > TOOL') return { backgroundColor: '#fee2e2', color: '#991b1b' };
     return { backgroundColor: '#fef3c7', color: '#92400e' };
   };
+
+  if (!authReady) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '50vh', bgcolor: '#f0f4f8' }}>
+        <Typography sx={{ color: '#0f4c75', fontWeight: 600 }}>Restoring your session...</Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', bgcolor: '#f0f4f8', margin: 0, padding: 0 }}>
@@ -406,9 +437,28 @@ export default function AdminLiveMonitor() {
               borderRadius: '8px'
             }}
           >
-            <MenuItem value="All">All Statuses</MenuItem>
+            <MenuItem value="All">Status</MenuItem>
             <MenuItem value="Active">Active (&lt;1 min)</MenuItem>
             <MenuItem value="Inactive">Inactive (&ge;1 min)</MenuItem>
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 170 }} size="small">
+          <InputLabel>Sync Status</InputLabel>
+          <Select
+            value={filterSyncStatus}
+            label="Sync Status"
+            onChange={(e) => setFilterSyncStatus(e.target.value)}
+            sx={{
+              bgcolor: '#f8fafc',
+              borderRadius: '8px'
+            }}
+          >
+            <MenuItem value="All">All Sync Status</MenuItem>
+            <MenuItem value="ECI = TOOL">ECI = TOOL</MenuItem>
+            <MenuItem value="ECI > TOOL">ECI &gt; TOOL</MenuItem>
+            <MenuItem value="ECI < TOOL">ECI &lt; TOOL</MenuItem>
+            <MenuItem value="Not Started">Not Started</MenuItem>
           </Select>
         </FormControl>
 
@@ -424,8 +474,8 @@ export default function AdminLiveMonitor() {
             }}
           >
             <MenuItem value="All">All Team Leads</MenuItem>
-            {uniqueTLs.map((tlEmail) => (
-              <MenuItem key={tlEmail} value={tlEmail}>{tlEmail}</MenuItem>
+            {uniqueTLs.map((tl) => (
+              <MenuItem key={tl.value} value={tl.value}>{tl.label}</MenuItem>
             ))}
           </Select>
         </FormControl>
@@ -442,8 +492,8 @@ export default function AdminLiveMonitor() {
             }}
           >
             <MenuItem value="All">All Research Analysts</MenuItem>
-            {uniqueRAs.map((raEmail) => (
-              <MenuItem key={raEmail} value={raEmail}>{raEmail}</MenuItem>
+            {uniqueRAs.map((ra) => (
+              <MenuItem key={ra.value} value={ra.value}>{ra.label}</MenuItem>
             ))}
           </Select>
         </FormControl>
@@ -461,10 +511,7 @@ export default function AdminLiveMonitor() {
           >
             <MenuItem value="lag-desc">Highest ECI Lag</MenuItem>
             <MenuItem value="lag-asc">Lowest ECI Lag</MenuItem>
-            <MenuItem value="updated-desc">Latest ECI Update</MenuItem>
-            <MenuItem value="updated-asc">Oldest ECI Update</MenuItem>
-            <MenuItem value="name">Constituency Name</MenuItem>
-            <MenuItem value="status">Status</MenuItem>
+            <MenuItem value="sync-status">Round Difference</MenuItem>
           </Select>
         </FormControl>
       </Box>
@@ -561,6 +608,12 @@ export default function AdminLiveMonitor() {
                           ...getSyncChipStyles(row.syncStatus)
                         }}>
                           {row.syncStatus}
+                          {row.syncStatus !== 'Not Started' && (
+                            <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
+                              <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
+                              <span>{getSyncStatusDelta(row.eciRound ?? 0, row.toolRound ?? 0)}</span>
+                            </Box>
+                          )}
                         </Box>
                       </TableCell>
                       <TableCell sx={{ py: 1 }}>
