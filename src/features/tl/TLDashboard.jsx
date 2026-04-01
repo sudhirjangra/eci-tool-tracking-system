@@ -13,10 +13,12 @@ import {
   getLagSeconds,
   getSyncStatus,
   getSyncStatusDelta,
+  normalizeText,
   formatLag,
   formatTimestamp,
   getSortTimestamp,
   pickLatestElectionRow,
+  toSearchText,
 } from '../../lib/electionMetrics';
 import {
   dashboardContentSx,
@@ -231,11 +233,11 @@ export default function TLDashboard() {
   }, [queryClient, currentUser?.id]);
 
   const stateOptions = useMemo(() => {
-    return [...new Set((myConstituencies || []).map((item) => item.states?.name).filter(Boolean))].sort();
+    return [...new Set((myConstituencies || []).map((item) => normalizeText(item.states?.name)).filter(Boolean))].sort((left, right) => compareConstituencyNames(left, right));
   }, [myConstituencies]);
 
   const filteredMyConstituencies = useMemo(() => {
-    const query = (deferredMapSearch || '').trim().toLowerCase();
+    const query = toSearchText(deferredMapSearch);
     const rows = (myConstituencies || []).map((constituency) => {
       const candidate = pickLatestElectionRow(constituency.election_data) || constituency.election_data?.[0] || {};
       const cached = electionCacheRef.current.get(constituency.id) || {};
@@ -294,9 +296,9 @@ export default function TLDashboard() {
     }).filter((row) => {
       const matchesSearch =
         !query ||
-        row.constituencyName.toLowerCase().includes(query) ||
-        (row.states?.name || '').toLowerCase().includes(query) ||
-        String(row.eci_id || '').includes(query);
+        toSearchText(row.constituencyName).includes(query) ||
+        toSearchText(row.states?.name).includes(query) ||
+        toSearchText(row.eci_id).includes(query);
       const matchesState = !mapState || row.states?.name === mapState;
       const matchesRA =
         mapRA === 'All' ||
@@ -335,11 +337,11 @@ export default function TLDashboard() {
   }, [myRAs]);
 
   const raPerformanceRows = useMemo(() => {
-    const query = (deferredSearchRA || '').trim().toLowerCase();
+    const query = toSearchText(deferredSearchRA);
     const rows = filteredMyConstituencies.filter((row) => {
       const assignedRA = row.assigned_ra_id ? (myRAs || []).find((ra) => ra.id === row.assigned_ra_id) : null;
-      const raLabel = assignedRA ? `${assignedRA.name || ''} ${assignedRA.email || ''}`.trim().toLowerCase() : 'unassigned';
-      const matchesSearch = !query || raLabel.includes(query) || row.constituencyName.toLowerCase().includes(query);
+      const raLabel = assignedRA ? toSearchText(`${normalizeText(assignedRA.name)} ${normalizeText(assignedRA.email)}`) : 'unassigned';
+      const matchesSearch = !query || raLabel.includes(query) || toSearchText(row.constituencyName).includes(query);
       const matchesRA = !filterRA || row.assigned_ra_id === filterRA;
       const matchesSync = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
       return matchesSearch && matchesRA && matchesSync;

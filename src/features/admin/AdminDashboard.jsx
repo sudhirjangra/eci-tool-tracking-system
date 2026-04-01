@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
-import { ACTIVITY_THRESHOLD_MS, pickLatestElectionRow, toMillis } from '../../lib/electionMetrics';
+import { ACTIVITY_THRESHOLD_MS, compareConstituencyNames, normalizeText, pickLatestElectionRow, toMillis, toSearchText } from '../../lib/electionMetrics';
 import { createBufferedQueryPatchScheduler, patchNestedElectionById, subscribeToElectionData } from '../../lib/electionRealtime';
 import AdminLiveMonitor from './AdminLiveMonitor';
 import ViewUserMapModal from './ViewUserMapModal';
@@ -177,10 +177,12 @@ export default function AdminDashboard() {
 
   const teamLeaderList = allRoles?.filter(r => r.role === 'tl') || [];
   const filteredTLs = teamLeaderList.filter(tl => {
-    const searchTermLower = searchTerm.toLowerCase();
-    return (tl.email?.toLowerCase().includes(searchTermLower) || 
-            tl.name?.toLowerCase().includes(searchTermLower));
+      const searchTermLower = toSearchText(searchTerm);
+      return (toSearchText(tl.email).includes(searchTermLower) || 
+        toSearchText(tl.name).includes(searchTermLower));
   });
+
+    filteredTLs.sort((left, right) => compareConstituencyNames(normalizeText(left.name || left.email), normalizeText(right.name || right.email)));
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>

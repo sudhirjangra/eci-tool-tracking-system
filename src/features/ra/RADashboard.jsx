@@ -13,10 +13,12 @@ import {
   getLagSeconds,
   getSyncStatus,
   getSyncStatusDelta,
+  normalizeText,
   formatLag,
   formatTimestamp,
   getSortTimestamp,
   pickLatestElectionRow,
+  toSearchText,
 } from '../../lib/electionMetrics';
 import {
   dashboardContentSx,
@@ -242,7 +244,7 @@ export default function RADashboard() {
 
   const filteredAssignments = useMemo(() => {
     if (!assignments) return [];
-    const q = (deferredSearch || '').trim().toLowerCase();
+    const q = toSearchText(deferredSearch);
     let rows = assignments.map((assignment) => {
       const candidate = pickLatestElectionRow(assignment.election_data) || assignment.election_data?.[0] || {};
       const cached = electionCacheRef.current.get(assignment.id) || {};
@@ -301,8 +303,8 @@ export default function RADashboard() {
 
     if (q) {
       rows = rows.filter((assignment) => {
-        const name = assignment.constituencyName.toLowerCase();
-        const state = (assignment.states?.name || '').toLowerCase();
+        const name = toSearchText(assignment.constituencyName);
+        const state = toSearchText(assignment.states?.name);
         return name.includes(q) || state.includes(q);
       });
     }
@@ -335,7 +337,7 @@ export default function RADashboard() {
   }, [assignments, deferredSearch, filterState, filterSyncStatus, now, sortBy]);
 
   const uniqueStates = useMemo(() => {
-    return [...new Set((assignments || []).map((row) => row.states?.name).filter(Boolean))].sort();
+    return [...new Set((assignments || []).map((row) => normalizeText(row.states?.name)).filter(Boolean))].sort((left, right) => compareConstituencyNames(left, right));
   }, [assignments]);
 
   if (!authReady) {

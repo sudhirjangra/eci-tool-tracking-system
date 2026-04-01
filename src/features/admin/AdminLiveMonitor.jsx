@@ -13,10 +13,12 @@ import {
   getLagSeconds,
   getSyncStatus,
   getSyncStatusDelta,
+  normalizeText,
   formatLag,
   formatTimestamp,
   getSortTimestamp,
   pickLatestElectionRow,
+  toSearchText,
 } from '../../lib/electionMetrics';
 import {
   dashboardControlSx,
@@ -301,14 +303,14 @@ export default function AdminLiveMonitor() {
 
   // 6. Apply Filters
   const filteredData = useMemo(() => {
-    const query = (deferredSearchTerm || '').trim().toLowerCase();
+    const query = toSearchText(deferredSearchTerm);
     const rows = processedData.filter((row) => {
       const matchesSearch =
-        row.constituencyName.toLowerCase().includes(query) ||
-        (row.states?.name || '').toLowerCase().includes(query) ||
-        String(row.eci_id || '').includes(query) ||
-        (row.tlName || '').toLowerCase().includes(query) ||
-        (row.raName || '').toLowerCase().includes(query);
+        toSearchText(row.constituencyName).includes(query) ||
+        toSearchText(row.states?.name).includes(query) ||
+        toSearchText(row.eci_id).includes(query) ||
+        toSearchText(row.tlName).includes(query) ||
+        toSearchText(row.raName).includes(query);
       
       const matchesState = filterState === 'All' || row.states?.name === filterState;
       const matchesSyncStatus = filterSyncStatus === 'All' || row.syncStatus === filterSyncStatus;
@@ -345,8 +347,8 @@ export default function AdminLiveMonitor() {
       }
     });
     return Array.from(options.entries())
-      .map(([value, label]) => ({ value, label }))
-      .sort((left, right) => left.label.localeCompare(right.label));
+      .map(([value, label]) => ({ value, label: normalizeText(label) }))
+      .sort((left, right) => compareConstituencyNames(left.label, right.label));
   }, [processedData]);
   const uniqueRAs = useMemo(() => {
     const options = new Map();
@@ -356,8 +358,8 @@ export default function AdminLiveMonitor() {
       }
     });
     return Array.from(options.entries())
-      .map(([value, label]) => ({ value, label }))
-      .sort((left, right) => left.label.localeCompare(right.label));
+      .map(([value, label]) => ({ value, label: normalizeText(label) }))
+      .sort((left, right) => compareConstituencyNames(left.label, right.label));
   }, [processedData]);
   
   // Pagination for table

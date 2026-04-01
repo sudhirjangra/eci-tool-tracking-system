@@ -75,8 +75,24 @@ export function getSyncStatusDelta(eciRound = 0, toolRound = 0) {
   return eciRound - toolRound;
 }
 
+export function normalizeText(value) {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return String(value);
+}
+
+export function toSearchText(value) {
+  return normalizeText(value).trim().toLowerCase();
+}
+
 export function getConstituencyName(row) {
-  const name = row?.tool_name?.trim();
+  const name = normalizeText(row?.tool_name).trim();
   const eciId = row?.eci_id;
 
   if (!name) {
@@ -87,7 +103,7 @@ export function getConstituencyName(row) {
 }
 
 export function compareConstituencyNames(left = '', right = '') {
-  return left.localeCompare(right, undefined, {
+  return normalizeText(left).localeCompare(normalizeText(right), undefined, {
     numeric: true,
     sensitivity: 'base',
   });
