@@ -365,7 +365,7 @@ export default function RADashboard() {
             width: 44,
             height: 44,
             bgcolor: 'rgba(255,255,255,0.2)',
-            borderRadius: '8px',
+            // borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -373,7 +373,11 @@ export default function RADashboard() {
             fontWeight: 'bold',
             border: '2px solid rgba(255,255,255,0.3)'
           }}>
-            R
+            <img 
+              src="/favicon-96x96.png" 
+              alt="Elections 2026" 
+              style={{ width: '100%', height: '100%' }}
+            />
           </Box>
           <Box>
             <Typography sx={{ fontSize: '1.3rem', fontWeight: 'bold', lineHeight: 1 }}>Elections 2026</Typography>
@@ -405,24 +409,10 @@ export default function RADashboard() {
 
       {/* Main Content Area */}
       <Box sx={dashboardContentSx}>
-        {/* Page Title */}
-        <Box sx={dashboardIntroSx}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 0.5 }}>
-            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#0f4c75' }}>
-              My Assigned Territories
-            </Typography>
-            <Box sx={liveBadgeSx}>
-              <span className="dashboard-live-dot" />
-              Live Updates Active
-            </Box>
-          </Box>
-          <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
-            Monitor your assigned constituencies in real-time
-          </Typography>
-        </Box>
+        {/* Page Title removed to tighten layout */}
 
         {/* Main Table Card */}
-        <Box sx={{ ...dashboardTableCardSx, height: 'calc(100% - 60px)', maxWidth: '100%' }}>
+        <Box sx={{ ...dashboardTableCardSx, flex: 1, maxWidth: '100%' }}>
           <Box sx={{
             p: 2,
             bgcolor: 'rgba(248, 250, 252, 0.92)',
@@ -560,28 +550,10 @@ export default function RADashboard() {
                           {row.constituencyName}
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                            <Chip
-                              label={data.eci_round ?? '--'}
-                              size="small"
-                              sx={{
-                                bgcolor: '#e0e7ff',
-                                color: '#4f46e5'
-                              }}
-                            />
-                          </Box>
+                          <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{data.eci_round ?? '--'}</Typography>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                            <Chip
-                              label={data.tool_round ?? '--'}
-                              size="small"
-                              sx={{
-                                bgcolor: '#fce7f3',
-                                color: '#be185d'
-                              }}
-                            />
-                          </Box>
+                          <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{data.tool_round ?? '--'}</Typography>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{
@@ -597,7 +569,7 @@ export default function RADashboard() {
                             {row.syncStatus}
                             {row.syncStatus !== 'Not Started' && (
                               <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
-                                <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
+                                <span>|</span>
                                 <span>{row.roundDifference}</span>
                               </Box>
                             )}

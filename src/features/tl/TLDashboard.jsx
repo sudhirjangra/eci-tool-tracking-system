@@ -407,7 +407,7 @@ export default function TLDashboard() {
             width: 44,
             height: 44,
             bgcolor: 'rgba(255,255,255,0.2)',
-            borderRadius: '8px',
+            // borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -415,7 +415,11 @@ export default function TLDashboard() {
             fontWeight: 'bold',
             border: '2px solid rgba(255,255,255,0.3)'
           }}>
-            T
+            <img 
+              src="/favicon-96x96.png" 
+              alt="Elections 2026" 
+              style={{ width: '100%', height: '100%' }}
+            />
           </Box>
           <Box>
             <Typography sx={{ fontSize: '1.3rem', fontWeight: 'bold', lineHeight: 1 }}>Elections 2026</Typography>
@@ -453,21 +457,6 @@ export default function TLDashboard() {
         px: 4
       }}>
         <Button
-          onClick={() => setActiveTab('manage-ras')}
-          sx={{
-            textTransform: 'none',
-            fontSize: '1rem',
-            fontWeight: activeTab === 'manage-ras' ? 700 : 600,
-            color: activeTab === 'manage-ras' ? '#0f4c75' : '#94a3b8',
-            py: 2,
-            px: 3,
-            borderBottom: activeTab === 'manage-ras' ? '3px solid #0f4c75' : 'none',
-            '&:hover': { color: '#0f4c75' }
-          }}
-        >
-          Manage Research Analysts
-        </Button>
-        <Button
           onClick={() => setActiveTab('ra-status')}
           sx={{
             textTransform: 'none',
@@ -481,6 +470,21 @@ export default function TLDashboard() {
           }}
         >
           RA Performance
+        </Button>
+        <Button
+          onClick={() => setActiveTab('manage-ras')}
+          sx={{
+            textTransform: 'none',
+            fontSize: '1rem',
+            fontWeight: activeTab === 'manage-ras' ? 700 : 600,
+            color: activeTab === 'manage-ras' ? '#0f4c75' : '#94a3b8',
+            py: 2,
+            px: 3,
+            borderBottom: activeTab === 'manage-ras' ? '3px solid #0f4c75' : 'none',
+            '&:hover': { color: '#0f4c75' }
+          }}
+        >
+          Manage Research Analysts
         </Button>
       </Box>
 
@@ -627,19 +631,19 @@ export default function TLDashboard() {
 
         {activeTab === 'ra-status' && (
           <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
-            <Box sx={dashboardIntroSx}>
+            {/* <Box sx={dashboardIntroSx}>
               <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#0f4c75', mb: 0.5 }}>
                 RA Performance Dashboard
               </Typography>
               <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
                 Track assigned constituencies and ECI/Tool round progress for each RA.
               </Typography>
-            </Box>
+            </Box> */}
 
             {/* Filters */}
             <Box sx={{ ...dashboardTableCardSx, ...dashboardIntroSx, mb: 2, p: 1.5, flexDirection: 'row', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               <TextField
-                label="Search RA"
+                label="Search RA or Constituency"
                 variant="outlined"
                 size="small"
                 sx={dashboardSearchSx}
@@ -705,7 +709,6 @@ export default function TLDashboard() {
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                      <TableCell sx={dashboardTableHeadCellSx}>Research Analyst</TableCell>
                       <TableCell sx={dashboardTableHeadCellSx}>State</TableCell>
                       <TableCell sx={dashboardTableHeadCellSx}>Constituency</TableCell>
                       <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Round</TableCell>
@@ -714,14 +717,15 @@ export default function TLDashboard() {
                       <TableCell align="center" sx={dashboardTableHeadCellSx}>Activity</TableCell>
                       <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Last Updated</TableCell>
                       <TableCell align="center" sx={dashboardTableHeadCellSx}>ECI Lag</TableCell>
+                      <TableCell sx={dashboardTableHeadCellSx}>Research Analyst</TableCell>
                     </TableRow>
+                    {/* </TableRow> */}
                   </TableHead>
                   <TableBody>
                     {raPerformanceRows.map((item) => {
                       const assignedRA = item.assigned_ra_id ? (myRAs || []).find((ra) => ra.id === item.assigned_ra_id) : null;
                       return (
                         <TableRow key={item.id} sx={dashboardTableRowSx}>
-                          <TableCell>{assignedRA ? (assignedRA.name ? `${assignedRA.name} - ${assignedRA.email}` : assignedRA.email) : 'Unassigned'}</TableCell>
                           <TableCell>{item.states?.name || 'Unknown'}</TableCell>
                           <TableCell>{item.constituencyName}</TableCell>
                           <TableCell align="center">
@@ -744,7 +748,7 @@ export default function TLDashboard() {
                               {item.syncStatus}
                               {item.syncStatus !== 'Not Started' && (
                                 <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
-                                  <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
+                                  <span>|</span>
                                   <span>{item.syncDelta}</span>
                                 </Box>
                               )}
@@ -760,7 +764,7 @@ export default function TLDashboard() {
                                 <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.toolActive ? '#10b981' : '#ef4444' }} />
                                 <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
                               </Box>
-                              <Box sx={{ px: 1.25, py: 0.4, borderRadius: '999px', fontWeight: 700, ...getStatusPalette(item.status) }}>
+                              <Box sx={{ px: 1.25, py: 0.4, borderRadius: '999px', ...getStatusPalette(item.status) }}>
                                 {item.status}
                               </Box>
                             </Box>
@@ -771,6 +775,7 @@ export default function TLDashboard() {
                               {formatLag(item.lagSeconds)}
                             </Box>
                           </TableCell>
+                          <TableCell>{assignedRA ? (assignedRA.name ? `${assignedRA.name} - ${assignedRA.email}` : assignedRA.email) : 'Unassigned'}</TableCell>
                         </TableRow>
                       );
                     })}

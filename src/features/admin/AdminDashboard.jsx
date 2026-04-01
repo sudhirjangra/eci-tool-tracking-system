@@ -204,7 +204,7 @@ export default function AdminDashboard() {
             width: 44,
             height: 44,
             bgcolor: 'rgba(255,255,255,0.2)',
-            borderRadius: '8px',
+            // borderRadius: '1px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -212,7 +212,11 @@ export default function AdminDashboard() {
             fontWeight: 'bold',
             border: '2px solid rgba(255,255,255,0.3)'
           }}>
-            E
+            <img
+              src="/favicon-96x96.png"
+              alt="Elections 2026"
+              style={{ width: '100%', height: '100%' }}
+            />
           </Box>
           <Box>
             <Typography sx={{ fontSize: '1.3rem', fontWeight: 'bold', lineHeight: 1 }}>Elections 2026</Typography>
@@ -396,6 +400,9 @@ export default function AdminDashboard() {
                         </TableCell>
                             {/* RA Status Popup */}
                             <Dialog open={!!raStatusTL} onClose={() => setRAStatusTL(null)} maxWidth="md" fullWidth
+                              PaperProps={{
+                                sx: { borderRadius: 2 }
+                              }}
                               sx={{
                                 '& .MuiBackdrop-root': {
                                   backgroundColor: 'rgba(255,255,255,0.2)',
@@ -403,9 +410,17 @@ export default function AdminDashboard() {
                                 }
                               }}
                             >
-                              <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <DialogTitle sx={{ 
+                                background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
+                                color: 'white',
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'space-between',
+                                fontSize: '1.3rem',
+                                fontWeight: 700
+                              }}>
                                 RA Status for Team Leader
-                                <IconButton onClick={() => setRAStatusTL(null)} size="small"><CloseIcon /></IconButton>
+                                <IconButton onClick={() => setRAStatusTL(null)} size="small" sx={{ color: 'white' }}><CloseIcon /></IconButton>
                               </DialogTitle>
                               <DialogContent>
                                 {raStatusTL && (

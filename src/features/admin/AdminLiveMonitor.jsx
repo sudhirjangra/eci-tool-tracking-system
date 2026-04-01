@@ -522,32 +522,10 @@ export default function AdminLiveMonitor() {
                         </Typography>
                       </TableCell>
                       <TableCell align="center" sx={{ py: 1 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                          <Chip
-                            label={row.eciRound ?? '--'}
-                            size="small"
-                            variant="filled"
-                            sx={{
-                              bgcolor: '#e0e7ff',
-                              color: '#4f46e5',
-                              fontWeight: 700
-                            }}
-                          />
-                        </Box>
+                        <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#4f46e5' }}>{row.eciRound ?? '--'}</Typography>
                       </TableCell>
                       <TableCell align="center" sx={{ py: 1 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                          <Chip
-                            label={row.toolRound ?? '--'}
-                            size="small"
-                            variant="filled"
-                            sx={{
-                              bgcolor: '#fce7f3',
-                              color: '#be185d',
-                              fontWeight: 700
-                            }}
-                          />
-                        </Box>
+                        <Typography sx={{ fontWeight: 600, fontSize: '1rem', color: '#be185d' }}>{row.toolRound ?? '--'}</Typography>
                       </TableCell>
                       <TableCell align="center" sx={{ py: 1 }}>
                         <Box sx={{
@@ -563,7 +541,7 @@ export default function AdminLiveMonitor() {
                           {row.syncStatus}
                           {row.syncStatus !== 'Not Started' && (
                             <Box sx={{ ml: 0.8, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
-                              <Box sx={{ width: 3, height: 3, borderRadius: '50%', bgcolor: 'currentColor', opacity: 0.6 }} />
+                                <span>|</span>
                               <span>{row.roundDifference}</span>
                             </Box>
                           )}
@@ -587,7 +565,6 @@ export default function AdminLiveMonitor() {
                           px: 1.2,
                           py: 0.6,
                           borderRadius: '6px',
-                          fontWeight: 700,
                           fontSize: '0.82rem',
                           ...getStatusPalette(row.status)
                         }}>

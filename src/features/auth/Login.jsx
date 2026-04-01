@@ -97,7 +97,7 @@ export default function Login() {
             Election 2026
           </Typography>
           <Typography variant="h5" sx={{ fontWeight: 400, opacity: 0.95 }}>
-            Authority Tracker System
+            Rounds Tracker System
           </Typography>
         </Box>
       </Box>
@@ -145,7 +145,7 @@ export default function Login() {
                   <TextField
                     fullWidth
                     type="email"
-                    placeholder="your.email@election2026.com"
+                    placeholder="sudhirjangra@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
@@ -207,7 +207,7 @@ export default function Login() {
 
                 <Box sx={{ textAlign: 'center', mt: 2, pt: 2, borderTop: '1px solid #cbd5e0' }}>
                   <Typography sx={{ fontSize: '0.875rem', color: '#4a5568' }}>
-                    For assistance, contact the election authority
+                    For assistance, please contact Sudhir Jangra
                   </Typography>
                 </Box>
               </Stack>

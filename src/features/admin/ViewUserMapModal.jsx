@@ -11,10 +11,14 @@ import {
   Typography,
   CircularProgress,
   Paper,
-  Grid,
-  Badge,
   Chip,
-  Stack,
+  Badge,
+  Table,
+  TableHead,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableRow,
 } from '@mui/material';
 import { MapPin, Layers } from 'lucide-react';
 
@@ -115,65 +119,26 @@ export default function ViewUserMapModal({ isOpen, onClose, user }) {
               </Typography>
             </Box>
 
-            <Stack spacing={3}>
-              {Object.entries(groupedByState).map(([state, constits]) => (
-                <Paper key={state} sx={{ p: 2.5, borderRadius: 1.5, border: '1px solid #e0e0e0' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a202c' }}>
-                      {state}
-                    </Typography>
-                    <Chip
-                      label={constits.length}
-                      size="small"
-                      sx={{
-                        backgroundColor: isTeamLead ? '#e3f2fd' : '#e0f5f1',
-                        color: headerColor,
-                        fontWeight: 700,
-                      }}
-                    />
-                  </Box>
-
-                  <Grid container spacing={2}>
-                    {constits.map((terr) => (
-                      <Grid item xs={12} sm={6} key={terr.id}>
-                        <Paper sx={{
-                          p: 2,
-                          backgroundColor: '#f9fafb',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: 1,
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            borderColor: accentColor,
-                            backgroundColor: '#f0f9ff',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                          },
-                        }}>
-                          <Typography variant="caption" sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.5,
-                            display: 'block',
-                            mb: 0.5,
-                          }}>
-                            ECI ID: {terr.eci_id}
-                          </Typography>
-                          <Typography variant="body2" sx={{
-                            fontWeight: 600,
-                            color: '#1a202c',
-                            mb: 0.5,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}>
-                            {getConstituencyName(terr)}
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Paper>
-              ))}
-            </Stack>
+            <TableContainer component={Paper}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>State</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>ECI ID</TableCell>
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>Constituency Name</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {territories.map((terr) => (
+                    <TableRow key={terr.id} sx={{ '&:hover': { bgcolor: '#f8fafc' }, borderBottom: '1px solid #e2e8f0' }}>
+                      <TableCell sx={{ py: 1 }}>{terr.states?.name || 'Unknown'}</TableCell>
+                      <TableCell sx={{ py: 1, color: accentColor, fontWeight: 600 }}>{terr.eci_id}</TableCell>
+                      <TableCell sx={{ py: 1, fontWeight: 500 }}>{getConstituencyName(terr)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </Box>
         )}
       </DialogContent>
