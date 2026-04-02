@@ -22,8 +22,46 @@ const queryClient = new QueryClient({
   },
 });
 
+export { queryClient };
+
 function QueryProviders({ children }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, errorCount: 0 };
+  }
+
+  static getDerivedStateFromError(error) {
+    // Only catch actual errors, not concurrent rendering recovery warnings
+    if (error?.message?.includes('concurrent rendering')) {
+      console.warn('[ErrorBoundary] Suppressing concurrent rendering recovery warning', error);
+      return null;
+    }
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    // Ignore transient React concurrent rendering errors
+    if (error?.message?.includes('concurrent rendering')) {
+      return;
+    }
+    console.error('[ErrorBoundary]', error, info);
+    this.setState(state => ({ errorCount: state.errorCount + 1 }));
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Auto-recover after a brief delay
+      if (this.state.errorCount < 3) {
+        setTimeout(() => this.setState({ hasError: false }), 500);
+      }
+      return <Navigate to="/login" replace />;
+    }
+    return this.props.children;
+  }
 }
 
 function App() {
@@ -33,13 +71,15 @@ function App() {
       <QueryProviders>
         <Box sx={{ width: '100%', height: '100vh', overflow: 'hidden' }}>
           <Router>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/admin" element={<AdminDashboard />} />
-              <Route path="/tl" element={<TLDashboard />} />
-              <Route path="/ra" element={<RADashboard />} />
-              <Route path="*" element={<Navigate to="/login" replace />} />
-            </Routes>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/tl" element={<TLDashboard />} />
+                <Route path="/ra" element={<RADashboard />} />
+                <Route path="*" element={<Navigate to="/login" replace />} />
+              </Routes>
+            </ErrorBoundary>
           </Router>
         </Box>
       </QueryProviders>

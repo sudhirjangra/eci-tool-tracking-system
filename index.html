@@ -212,6 +212,12 @@
 
       // Global error handler
       window.addEventListener('error', function(event) {
+        // Ignore transient React errors during navigation/logout
+        if (event.message && (event.message.includes('Minified React error') || event.message.includes('concurrent rendering'))) {
+          console.warn('Transient React error suppressed:', event.message);
+          event.preventDefault();
+          return;
+        }
         const errorContainer = document.getElementById('error-container');
         const errorMessage = document.getElementById('error-message');
         errorContainer.style.display = 'block';
@@ -221,6 +227,13 @@
       
       // Unhandled promise rejection handler
       window.addEventListener('unhandledrejection', function(event) {
+        // Ignore transient React/auth errors during navigation/logout
+        const reason = String(event.reason || '');
+        if (reason.includes('Minified React error') || reason.includes('AuthSessionMissingError') || reason.includes('concurrent rendering')) {
+          console.warn('Transient rejection suppressed:', reason);
+          event.preventDefault();
+          return;
+        }
         const errorContainer = document.getElementById('error-container');
         const errorMessage = document.getElementById('error-message');
         errorContainer.style.display = 'block';

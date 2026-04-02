@@ -10,7 +10,7 @@ export const dashboardShellSx = {
 };
 
 export const dashboardHeaderSx = {
-  background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 52%, #4b9ad1 100%)',
+  background: 'linear-gradient(135deg, #3f3f3f 15%, #57416d 55%, #480c7f 85%)',
   color: '#fff',
   borderBottom: '1px solid rgba(255,255,255,0.18)',
   boxShadow: '0 10px 30px rgba(15, 76, 117, 0.18)',
@@ -20,7 +20,7 @@ export const dashboardHeaderSx = {
     content: '""',
     position: 'absolute',
     inset: 0,
-    background: 'linear-gradient(120deg, rgba(255,255,255,0.14), transparent 32%, transparent 68%, rgba(255,255,255,0.08))',
+    background: 'linear-gradient(120deg, rgba(255, 255, 255, 0.08), transparent 32%, transparent 68%, rgba(255,255,255,0.08))',
     pointerEvents: 'none',
   },
 };
@@ -29,13 +29,12 @@ export const dashboardContentSx = {
   flexGrow: 1,
   minHeight: 0,
   overflow: 'auto',
-  p: 1.5,
   display: 'flex',
   flexDirection: 'column',
 };
 
 export const dashboardIntroSx = {
-  mb: 2,
+  mb: 1,
   px: 0.5,
 };
 
@@ -50,9 +49,9 @@ export const dashboardFilterBarSx = {
 };
 
 export const dashboardTableCardSx = {
-  bgcolor: 'rgba(255,255,255,0.92)',
+  bgcolor: 'rgba(255, 255, 255, 0.92)',
   border: '1px solid rgba(203, 213, 225, 0.9)',
-  borderRadius: '14px',
+  borderRadius: '14 px',
   overflow: 'hidden',
   boxShadow: '0 12px 30px rgba(15,76,117,0.08)',
   backdropFilter: 'blur(10px)',
@@ -114,25 +113,25 @@ export const liveBadgeSx = {
 
 export function getLagPalette(seconds) {
   if (seconds === null || seconds === undefined || seconds === '-') {
-    return { bgcolor: '#e2e8f0', color: '#64748b' };
+    return { bgcolor: 'transparent', color: '#475569' };
   }
 
-  if (seconds <= 60) return { bgcolor: '#d1fae5', color: '#047857' };
-  if (seconds <= 300) return { bgcolor: '#fef3c7', color: '#92400e' };
-  return { bgcolor: '#fee2e2', color: '#991b1b' };
+  if (seconds <= 60) return { bgcolor: 'rgba(209, 250, 229, 0.4)', color: '#047857' };
+  if (seconds <= 300) return { bgcolor: 'rgba(254, 243, 199, 0.4)', color: '#78350f' };
+  return { bgcolor: 'rgba(254, 226, 226, 0.4)', color: '#7f1d1d' };
 }
 
 export function getStatusPalette(status) {
-  if (status === 'Active') return { bgcolor: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' };
-  if (status === 'Inactive') return { bgcolor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' };
-  return { bgcolor: '#e2e8f0', color: '#64748b', border: '1px solid #cbd5e1' };
+  if (status === 'Active') return { bgcolor: 'rgba(209, 250, 229, 0.3)', color: '#047857', border: 'none' };
+  if (status === 'Inactive') return { bgcolor: 'rgba(254, 226, 226, 0.3)', color: '#7f1d1d', border: 'none' };
+  return { bgcolor: 'rgba(226, 232, 240, 0.3)', color: '#475569', border: 'none' };
 }
 
 export function getSyncStatusPalette(syncStatus) {
-  if (syncStatus === 'ECI = TOOL') return { backgroundColor: '#d1fae5', color: '#059669' };
-  if (syncStatus === 'Not Started') return { backgroundColor: '#e2e8f0', color: '#64748b' };
-  if (syncStatus === 'ECI > TOOL') return { backgroundColor: '#fee2e2', color: '#991b1b' };
-  return { backgroundColor: '#fef3c7', color: '#92400e' };
+  if (syncStatus === 'ECI = TOOL') return { backgroundColor: 'rgba(209, 250, 229, 0.4)', color: '#047857' };
+  if (syncStatus === 'Not Started') return { backgroundColor: 'rgba(226, 232, 240, 0.3)', color: '#475569' };
+  if (syncStatus === 'ECI > TOOL') return { backgroundColor: 'rgba(254, 226, 226, 0.4)', color: '#7f1d1d' };
+  return { backgroundColor: 'rgba(254, 243, 199, 0.4)', color: '#78350f' };
 }
 
 export function getSortLabel(sortBy) {

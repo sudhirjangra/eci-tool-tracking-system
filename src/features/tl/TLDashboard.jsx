@@ -378,6 +378,8 @@ export default function TLDashboard() {
   };
 
   const handleLogout = async () => {
+    queryClient.cancelQueries();
+    queryClient.clear();
     await supabase.auth.signOut();
     navigate('/login');
   };
@@ -491,7 +493,7 @@ export default function TLDashboard() {
       {/* Main Content Area */}
       <Box sx={dashboardContentSx}>
         {activeTab === 'manage-ras' && (
-          <Box>
+          <Box sx={{ p: 2, height: '100%', overflow: 'auto' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
               <Box>
                 <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#0f4c75', mb: 0.5 }}>
@@ -630,7 +632,7 @@ export default function TLDashboard() {
         )}
 
         {activeTab === 'ra-status' && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, p: 2, overflow: 'auto' }}>
             {/* <Box sx={dashboardIntroSx}>
               <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: '#0f4c75', mb: 0.5 }}>
                 RA Performance Dashboard
@@ -757,12 +759,12 @@ export default function TLDashboard() {
                           <TableCell align="center">
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5 }}>
                               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.eciActive ? '#10b981' : '#ef4444' }} />
-                                <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>ECI</Typography>
+                                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.eciActive ? '#10b981' : '#cbd5e1' }} />
+                                <Typography variant="caption" sx={{ fontWeight: 600, color: '#475569' }}>ECI</Typography>
                               </Box>
                               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.toolActive ? '#10b981' : '#ef4444' }} />
-                                <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
+                                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: item.toolActive ? '#10b981' : '#cbd5e1' }} />
+                                <Typography variant="caption" sx={{ fontWeight: 600, color: '#475569' }}>TOOL</Typography>
                               </Box>
                               <Box sx={{ px: 1.25, py: 0.4, borderRadius: '999px', ...getStatusPalette(item.status) }}>
                                 {item.status}

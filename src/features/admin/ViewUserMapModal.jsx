@@ -124,15 +124,15 @@ export default function ViewUserMapModal({ isOpen, onClose, user }) {
                 <TableHead>
                   <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
                     <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>State</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>ECI ID</TableCell>
-                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>Constituency Name</TableCell>
+                    {/* <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>ECI ID</TableCell> */}
+                    <TableCell sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.72rem', color: '#64748b' }}>ECI Number - Constituency Name</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {territories.map((terr) => (
                     <TableRow key={terr.id} sx={{ '&:hover': { bgcolor: '#f8fafc' }, borderBottom: '1px solid #e2e8f0' }}>
                       <TableCell sx={{ py: 1 }}>{terr.states?.name || 'Unknown'}</TableCell>
-                      <TableCell sx={{ py: 1, color: accentColor, fontWeight: 600 }}>{terr.eci_id}</TableCell>
+                      {/* <TableCell sx={{ py: 1, color: accentColor, fontWeight: 600 }}>{terr.eci_id}</TableCell> */}
                       <TableCell sx={{ py: 1, fontWeight: 500 }}>{getConstituencyName(terr)}</TableCell>
                     </TableRow>
                   ))}

@@ -346,8 +346,8 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                           sx={{ color: '#00a86b' }}
                         />
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>ECI ID</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Constituency</TableCell>
+                      {/* <TableCell sx={{ fontWeight: 700 }}>ECI ID</TableCell> */}
+                      <TableCell sx={{ fontWeight: 700 }}>ECI Code - Constituency</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Assigned RA</TableCell>
                     </TableRow>
                   </TableHead>
@@ -373,7 +373,7 @@ export default function DelegateMapModal({ isOpen, onClose, ra, tlId, onSuccess 
                               sx={{ color: '#00a86b' }}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontWeight: 700, color: '#00a86b' }}>{c.eci_id}</TableCell>
+                          {/* <TableCell sx={{ fontWeight: 700, color: '#00a86b' }}>{c.eci_id}</TableCell> */}
                           <TableCell>{getConstituencyName(c)}</TableCell>
                           <TableCell>
                             {c.assigned_ra_id

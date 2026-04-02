@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { fetchConstituenciesWithElectionData } from '../../lib/constituencyData';
 import { ACTIVITY_THRESHOLD_MS, compareConstituencyNames, normalizeText, pickLatestElectionRow, toMillis, toSearchText } from '../../lib/electionMetrics';
 import { createBufferedQueryPatchScheduler, patchNestedElectionById, subscribeToElectionData } from '../../lib/electionRealtime';
+import { dashboardHeaderSx, dashboardShellSx, dashboardContentSx } from '../../lib/dashboardUi';
 import AdminLiveMonitor from './AdminLiveMonitor';
 import ViewUserMapModal from './ViewUserMapModal';
 import ExpandableRATableRow from './ExpandableRATableRow';
@@ -30,6 +31,8 @@ export default function AdminDashboard() {
   const [raStatusTL, setRAStatusTL] = useState(null);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [isTLModalOpen, setIsTLModalOpen] = useState(false);
   const [selectedTLForEdit, setSelectedTLForEdit] = useState(null);
   const [selectedTLForMap, setSelectedTLForMap] = useState(null);
@@ -43,6 +46,40 @@ export default function AdminDashboard() {
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
   }, []);
+
+  // Get current admin user session on load
+  useEffect(() => {
+    let isMounted = true;
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (isMounted) {
+        if (!session) {
+          navigate('/login');
+        } else {
+          setCurrentUser(session.user);
+          setAuthReady(true);
+        }
+      }
+    };
+    getUser();
+    return () => {
+      isMounted = false;
+    };
+  }, [navigate]);
+
+  // Fetch current admin user info from database
+  const { data: userInfo } = useQuery({
+    queryKey: ['admin-user-info', currentUser?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('user_roles')
+        .select('name, email')
+        .eq('id', currentUser.id)
+        .single();
+      return data;
+    },
+    enabled: !!currentUser?.id,
+  });
 
   // Fetch ALL roles - optimized
   const { data: allRoles } = useQuery({
@@ -154,6 +191,8 @@ export default function AdminDashboard() {
   }, [liveStatsData, now]);
 
   const handleLogout = async () => {
+    queryClient.cancelQueries();
+    queryClient.clear();
     await supabase.auth.signOut();
     navigate('/login');
   };
@@ -184,16 +223,21 @@ export default function AdminDashboard() {
 
     filteredTLs.sort((left, right) => compareConstituencyNames(normalizeText(left.name || left.email), normalizeText(right.name || right.email)));
 
+  if (!authReady) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', bgcolor: '#f0f4f8' }}>
+        <Typography>Loading...</Typography>
+      </Box>
+    );
+  }
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', bgcolor: '#f0f4f8', overflow: 'hidden' }}>
+    <Box sx={dashboardShellSx}>
       {/* Top Navigation Header */}
       <Box sx={{ 
-        background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
-        color: '#fff',
+        ...dashboardHeaderSx,
         px: 4,
-        py: 2,
-        borderBottom: '2px solid #1a5a8e',
-        boxShadow: '0 4px 12px rgba(15, 76, 117, 0.15)',
+        py: 2.5,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
@@ -204,7 +248,6 @@ export default function AdminDashboard() {
             width: 44,
             height: 44,
             bgcolor: 'rgba(255,255,255,0.2)',
-            // borderRadius: '1px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -220,15 +263,15 @@ export default function AdminDashboard() {
           </Box>
           <Box>
             <Typography sx={{ fontSize: '1.3rem', fontWeight: 'bold', lineHeight: 1 }}>Elections 2026</Typography>
-            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>ADMIN CONTROL CENTER</Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>ADMIN DASHBOARD</Typography>
           </Box>
         </Box>
 
         {/* User Info & Logout */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box sx={{ textAlign: 'right', pr: 2, borderRight: '1px solid rgba(255,255,255,0.2)' }}>
-            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600 }}>Admin</Typography>
-            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8 }}>Command Center</Typography>
+            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600 }}>{userInfo?.name || 'Admin'}</Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.8, letterSpacing: '0.5px' }}>{userInfo?.email || currentUser?.email}</Typography>
           </Box>
           <Button
             onClick={handleLogout}
@@ -285,28 +328,28 @@ export default function AdminDashboard() {
           Team Administration
         </Button>
 
-        <Box sx={{ ml: 'auto', display: 'flex', gap: 1, pr: 0.5 }}>
-          <Box sx={{ px: 1.4, py: 0.7, bgcolor: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7', borderRadius: '8px', minWidth: 80, textAlign: 'center' }}>
-            <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.3px' }}>ACTIVE</Typography>
-            <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>{navStats.active}</Typography>
+        <Box sx={{ ml: 'auto', display: 'flex', gap: 1.5, pr: 1, alignItems: 'center' }}>
+          <Box sx={{ px: 1.5, py: 0.8, bgcolor: '#d1fae5', color: '#047857', border: '1.5px solid #6ee7b7', borderRadius: '8px', minWidth: 75, textAlign: 'center', boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)' }}>
+            <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.4px', color: '#047857' }}>ACTIVE</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#047857' }}>{navStats.active}</Typography>
           </Box>
-          <Box sx={{ px: 1.4, py: 0.7, bgcolor: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', minWidth: 80, textAlign: 'center' }}>
-            <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.3px' }}>INACTIVE</Typography>
-            <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>{navStats.inactive}</Typography>
+          <Box sx={{ px: 1.5, py: 0.8, bgcolor: '#fee2e2', color: '#991b1b', border: '1.5px solid #fecaca', borderRadius: '8px', minWidth: 75, textAlign: 'center', boxShadow: '0 2px 6px rgba(217, 45, 32, 0.3)' }}>
+            <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.4px', color: '#991b1b' }}>INACTIVE</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#991b1b' }}>{navStats.inactive}</Typography>
           </Box>
-          <Box sx={{ px: 1.4, py: 0.7, bgcolor: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd', borderRadius: '8px', minWidth: 80, textAlign: 'center' }}>
-            <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.3px' }}>TOTAL</Typography>
-            <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>{navStats.total}</Typography>
+          <Box sx={{ px: 1.5, py: 0.8, bgcolor: '#dbeafe', color: '#1d4ed8', border: '1.5px solid #93c5fd', borderRadius: '8px', minWidth: 75, textAlign: 'center', boxShadow: '0 2px 6px rgba(29, 78, 216, 0.3)' }}>
+            <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.4px', color: '#1d4ed8' }}>TOTAL</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#1d4ed8' }}>{navStats.total}</Typography>
           </Box>
         </Box>
       </Box>
 
       {/* Main Content Area */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 0 }}>
+      <Box sx={{ ...dashboardContentSx, p: 2 }}>
         {activeTab === 0 && <AdminLiveMonitor />}
 
         {activeTab === 1 && (
-          <Box sx={{ p: 1.5, height: '100%', overflow: 'auto' }}>
+          <Box sx={{ height: '100%', overflow: 'auto' }}>
             {/* Control Bar */}
             <Box sx={{
               display: 'flex',
@@ -346,6 +389,7 @@ export default function AdminDashboard() {
                 />
                 <Button
                   variant="contained"
+                  size="large"
                   startIcon={<PersonAddIcon />}
                   onClick={() => setIsTLModalOpen(true)}
                   sx={{

@@ -19,6 +19,7 @@ import {
   VisibilityOff as VisibilityOffIcon,
   HowToVote as VotingIcon,
 } from '@mui/icons-material';
+import { Bold } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -71,12 +72,52 @@ export default function Login() {
         width: '100%',
         minHeight: '100vh',
         display: 'flex',
-        background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 50%, #00a86b 100%)',
         position: 'fixed',
         top: 0,
         left: 0,
+        height: '100vh',
+        overflow: 'hidden',
       }}
     >
+      {/* Left Side - Background Image */}
+      <Box
+        sx={{
+          flex: 1,
+          backgroundColor: '#ffffff',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          color: 'white',
+          padding: '2rem',
+          position: 'relative',
+          overflow: 'hidden',
+          '@media (max-width: 960px)': {
+            display: 'none',
+          },
+        }}
+      >
+        {/* Background image */}
+        <Box
+          component="img"
+          src="/election-1.png"
+          alt="Elections 2026"
+          sx={{
+          position:'relative',
+            width: '75%',
+            height: 'auto',
+            objectFit: 'cover',
+            objectPosition: 'center',
+            opacity: 1,
+            top: 0,
+            left: 0,
+            transform: 'none',
+          }}
+        />
+        
+      </Box>
+
+      {/* Right Side - Login Form */}
       <Box
         sx={{
           flex: 1,
@@ -84,54 +125,26 @@ export default function Login() {
           flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center',
-          color: 'white',
           padding: '2rem',
-          '@media (max-width: 960px)': {
-            display: 'none',
-          },
-        }}
-      >
-        <Box sx={{ mb: 4, textAlign: 'center' }}>
-          <VotingIcon sx={{ fontSize: '4rem', mb: 2, opacity: 0.9 }} />
-          <Typography variant="h2" sx={{ fontWeight: 800, mb: 1 }}>
-            Election 2026
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 400, opacity: 0.95 }}>
-            Rounds Tracker System
-          </Typography>
-        </Box>
-      </Box>
-
-      <Box
-        sx={{
-          flex: 1,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '2rem',
-          backgroundColor: '#f0f4f8',
+          backgroundColor: '#ffffff',
           '@media (max-width: 960px)': {
             flex: 1,
             backgroundColor: 'white',
           },
         }}
       >
-        <Card sx={{ width: '100%', maxWidth: '420px', borderRadius: '1.5rem' }}>
-          <Box
-            sx={{
-              background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
-              color: 'white',
-              padding: '2rem',
-              textAlign: 'center',
-            }}
-          >
-            <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>
-              Welcome Back
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Sign in to your account
-            </Typography>
-          </Box>
+        {/* Title Above Form */}
+        
+
+        <Card sx={{ width: '100%', maxWidth: '420px', borderRadius: '1.5rem', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+          <Box sx={{ mb: 4, textAlign: 'center', width: '100%', maxWidth: '420px' }}>
+  
+          <img 
+            src="/kantar-logo.png" 
+            alt="Elections 2026" 
+            style={{ width: '45%', height: 'auto', display: 'block', margin: '3rem auto -2rem auto' }}
+          />
+        </Box>
 
           <Box sx={{ padding: '2rem' }}>
             <form onSubmit={handleLogin}>

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase, supabaseAdminAuth } from '../../lib/supabase';
 import {
   Box,
@@ -53,16 +53,16 @@ export default function CreateRAModal({ isOpen, onClose, onSuccess, tlId, ra = n
     setSuccess(false);
 
     if (!email.trim() || !name.trim() || (!isEditMode && !password.trim())) {
-      setError(isEditMode ? 'Email and name are required.' : 'Email, name, and password are required.');
+      setError(isEditMode ? 'Name is required.' : 'Email, name, and password are required.');
       setLoading(false);
       return;
     }
 
     if (isEditMode) {
+      // In edit mode, only update name and manager_id, NOT email
       const { error: updateError } = await supabase
         .from('user_roles')
         .update({
-          email: email.trim().toLowerCase(),
           name: name.trim(),
           manager_id: tlId,
         })
@@ -144,34 +144,29 @@ export default function CreateRAModal({ isOpen, onClose, onSuccess, tlId, ra = n
           {success && <Alert severity="success">{isEditMode ? 'Research Analyst updated successfully.' : 'Research Analyst created successfully.'}</Alert>}
 
           <TextField
-            label="Full Name"
-            type="text"
-            required
-            fullWidth
-            size="small"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={loading}
-            placeholder="Jane Smith"
-          />
-
-          <TextField
             label="Email Address"
             type="email"
             required
             fullWidth
-            size="small"
+            disabled={isEditMode || loading}
+            InputProps={{
+              startAdornment: isEditMode ? <InputAdornment position="start" sx={{ mr: 1 }}><LockIcon sx={{ color: '#999' }} /></InputAdornment> : <InputAdornment position="start"><EmailIcon color="action" /></InputAdornment>,
+            }}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            helperText={isEditMode ? 'Email cannot be changed after creation' : 'Enter the RA\'s email address'}
+            placeholder={isEditMode ? email : 'ra.name@election2026.com'}
+          />
+
+          <TextField
+            label="Full Name"
+            type="text"
+            required
+            fullWidth
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             disabled={loading}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <EmailIcon color="action" />
-                </InputAdornment>
-              ),
-            }}
-            placeholder="ra.name@election2026.com"
+            placeholder="Jane Smith"
           />
 
           {!isEditMode && (
@@ -181,7 +176,6 @@ export default function CreateRAModal({ isOpen, onClose, onSuccess, tlId, ra = n
                 type={showPassword ? 'text' : 'password'}
                 required
                 fullWidth
-                size="small"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}

@@ -45,7 +45,6 @@ import {
   TableRow,
   Button,
   Typography,
-  Chip,
   CircularProgress,
   TextField,
   FormControl,
@@ -238,6 +237,8 @@ export default function RADashboard() {
   }, [queryClient, currentUser?.id]);
 
   const handleLogout = async () => {
+    queryClient.cancelQueries();
+    queryClient.clear();
     await supabase.auth.signOut();
     navigate('/login');
   };
@@ -559,11 +560,11 @@ export default function RADashboard() {
                           <Box sx={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            px: 2,
-                            py: 1,
-                            borderRadius: '6px',
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
+                            px: 1.5,
+                            py: 0.5,
+                            borderRadius: '4px',
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
                             ...getSyncStatusPalette(row.syncStatus)
                           }}>
                             {row.syncStatus}
@@ -578,12 +579,12 @@ export default function RADashboard() {
                         <TableCell align="center" sx={{ py: 1 }}>
                           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5 }}>
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: row.activity.eciActive ? '#10b981' : '#ef4444' }} />
-                              <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>ECI</Typography>
+                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: row.activity.eciActive ? '#10b981' : '#cbd5e1' }} />
+                              <Typography variant="caption" sx={{ fontWeight: 600, color: '#475569' }}>ECI</Typography>
                             </Box>
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: row.activity.toolActive ? '#10b981' : '#ef4444' }} />
-                              <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>TOOL</Typography>
+                              <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: row.activity.toolActive ? '#10b981' : '#cbd5e1' }} />
+                              <Typography variant="caption" sx={{ fontWeight: 600, color: '#475569' }}>TOOL</Typography>
                             </Box>
                           </Box>
                         </TableCell>
@@ -593,15 +594,9 @@ export default function RADashboard() {
                           </Typography>
                         </TableCell>
                         <TableCell align="center" sx={{ py: 1 }}>
-                          <Chip
-                            label={formatLag(row.lagSeconds)}
-                            size="small"
-                            sx={{
-                              fontWeight: 700,
-                              fontFamily: 'monospace',
-                              ...getLagPalette(row.lagSeconds),
-                            }}
-                          />
+                          <Box sx={{ display: 'inline-flex', px: 1.25, py: 0.4, borderRadius: '999px', fontWeight: 700, fontFamily: 'monospace', ...getLagPalette(row.lagSeconds) }}>
+                            {formatLag(row.lagSeconds)}
+                          </Box>
                         </TableCell>
                       </TableRow>
                     );

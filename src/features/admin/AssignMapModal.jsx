@@ -185,7 +185,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
       sx: { borderRadius: 2, height: '90vh', display: 'flex', flexDirection: 'column' }
     }}>
       <DialogTitle sx={{
-        background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
+        background: 'linear-gradient(135deg, #00a86b 0%, #33c292 100%)',
         color: 'white',
         display: 'flex',
         alignItems: 'center',
@@ -225,10 +225,10 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
                 sx={{
                   mb: 0.5,
                   borderRadius: 1,
-                  backgroundColor: selectedState === state ? '#0f4c75' : 'transparent',
+                  backgroundColor: selectedState === state ? '#00a86b' : 'transparent',
                   color: selectedState === state ? 'white' : '#333',
                   '&:hover': {
-                    backgroundColor: selectedState === state ? '#0f4c75' : '#e8e8e8',
+                    backgroundColor: selectedState === state ? '#00a86b' : '#e8e8e8',
                   },
                 }}
               >
@@ -365,7 +365,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
                               onChange={() => handleToggle(c.id)}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontWeight: 700, color: '#0f4c75' }}>{c.eci_id}</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: '#00a86b' }}>{c.eci_id}</TableCell>
                           <TableCell>{getConstituencyName(c)}</TableCell>
                           <TableCell>
                             {c.assigned_tl_id
@@ -401,7 +401,7 @@ export default function AssignMapModal({ isOpen, onClose, tl, onSuccess }) {
           disabled={isSaving}
           variant="contained"
           sx={{
-            background: 'linear-gradient(135deg, #0f4c75 0%, #2a6fa6 100%)',
+            background: 'linear-gradient(135deg, #00a86b 0%, #33c292 100%)',
           }}
         >
           {isSaving ? 'Saving...' : 'Save Assignments'}
